@@ -87,7 +87,7 @@ const UserSchema = new mongoose.Schema({
         type: Boolean,
         default: false
     }
-});
+}, { strict: false });
 
 // UserSchema.pre('save', async function (next) {
 //     const user = this;

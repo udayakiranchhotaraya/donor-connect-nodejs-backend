@@ -14,13 +14,15 @@ const OAUTH_PROVIDERS = {
         CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
         CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
         CALLBACK_URL: process.env.GOOGLE_CALLBACK_URL,
-        STRATEGY: require('passport-google-oauth20').Strategy
+        STRATEGY: require('passport-google-oauth20').Strategy,
+        scope: ['profile', 'email']
     },
     // FACEBOOK: {
     //     CLIENT_ID: process.env.FACEBOOK_CLIENT_ID,
     //     CLIENT_SECRET: process.env.FACEBOOK_CLIENT_SECRET,
     //     CALLBACK_URL: process.env.FACEBOOK_CALLBACK_URL,
-    //     STRATEGY: require('passport-facebook').Strategy
+    //     STRATEGY: require('passport-facebook').Strategy,
+    //     profileFields: ['id', 'emails', 'name']
     // },
 };
 
