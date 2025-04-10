@@ -86,9 +86,6 @@ const UserSchema = new mongoose.Schema({
     isVerified: {
         type: Boolean,
         default: false
-    },
-    centers: {
-        type: Array
     }
 });
 
