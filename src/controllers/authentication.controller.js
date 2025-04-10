@@ -173,7 +173,7 @@ async function handleExistingUser(user, provider, res) {
 
 async function createSocialUser(profile, provider) {
     const [firstName, ...lastName] = profile.name.split(" ");
-    const user = await User.create({
+    const user = new User({
         user_id: generateUUID(),
         email: profile.email,
         firstName,
@@ -182,6 +182,7 @@ async function createSocialUser(profile, provider) {
         loginMethods: [provider],
         roles: ["donor"],
     });
+    await user.save();
     return user.toObject();
 }
 
