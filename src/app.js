@@ -14,6 +14,6 @@ app.use(express.static('/public'));
 app.use(morgan('dev'));
 app.use(limiter);
 
-app.use('/api', Router);
+app.use(Router);
 
 module.exports = app;

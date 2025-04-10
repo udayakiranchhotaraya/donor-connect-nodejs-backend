@@ -25,9 +25,9 @@ const OAUTH_PROVIDERS = {
 const ENVIRONMENT = process.env.NODE_ENV;
 const CONFIG_PARAM = {
     development: {
-        PORT: "4001",
+        PORT: "5001",
         JWT_ACCESS_SECRET: process.env.JWT_ACCESS_SECRET,
-        JWT_VERIFICATION_SECRET: process.env.JWT_VERIFICIATION_SECRET,
+        JWT_VERIFICATION_SECRET: process.env.JWT_VERIFICATION_SECRET,
         JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN,
         MONGO_DB_NAME: "HOMELY_HUB_DEV",
         SMTP_HOST: process.env.SMTP_HOST,
@@ -62,7 +62,7 @@ const CONFIG_PARAM = {
     production: {
         PORT: "4000",
         JWT_ACCESS_SECRET: process.env.JWT_ACCESS_SECRET,
-        JWT_VERIFICATION_SECRET: process.env.JWT_VERIFICIATION_SECRET,
+        JWT_VERIFICATION_SECRET: process.env.JWT_VERIFICATION_SECRET,
         JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN,
         MONGO_DB_NAME: "HOMELY_HUB_DB",
         SMTP_HOST: process.env.SMTP_HOST,
