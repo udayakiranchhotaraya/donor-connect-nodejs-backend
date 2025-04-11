@@ -105,6 +105,7 @@ async function listAllCenters(req, res) {
 
         // Field projection
         const selectedFields = {
+            center_id: 1,
             name: 1,
             address: 1,
             createdAt: 1,
