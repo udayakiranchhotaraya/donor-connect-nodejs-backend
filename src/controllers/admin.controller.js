@@ -78,6 +78,7 @@ async function listAllCenters(req, res) {
             address: 1,
             createdAt: 1,
             contactInfo: 1,
+            'verification.status': 1,
             '_id': 0 // Include _id if needed
         };
 
