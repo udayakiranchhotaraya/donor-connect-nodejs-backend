@@ -7,6 +7,7 @@ const {
 const generateUUID = require("../utils/uuid.utils");
 const {
     sendCenterRegistrationInitiationEmail,
+    sendCenterRegistrationAdminNotificationEmail,
 } = require("../config/mail/mail.config");
 const mongoose = require("mongoose");
 const { Center, User } = require("../models");
@@ -14,6 +15,7 @@ const {
     validateCoordinatesArray,
     validateLocation,
 } = require("../validators/location.validator");
+const { notifyAdmin } = require("../routes/sse-notifications.router");
 
 async function onboardCenter(req, res) {
     const user = req.user;
@@ -99,6 +101,13 @@ async function onboardCenter(req, res) {
             throw new Error("TOO_MANY_CENTERS");
         }
 
+        notifyAdmin("NEW_CENTER_REGISTRATION_REQUEST_RECEIVED", {
+            center_id: centerDocument.center_id,
+            name: centerDocument.name,
+            email: centerDocument.email,
+            status: centerDocument.status,
+        });
+
         await sendCenterRegistrationInitiationEmail({
             ...centerDocument,
             creator: {
@@ -108,6 +117,15 @@ async function onboardCenter(req, res) {
             },
         });
 
+        await sendCenterRegistrationAdminNotificationEmail({
+            ...centerDocument,
+            creator: {
+                creator_id: user.sub,
+                email: user.email,
+                name: `${user.firstName} ${user.lastName}`
+            }
+        });
+        
         await session.commitTransaction();
 
         return res.status(200).json({

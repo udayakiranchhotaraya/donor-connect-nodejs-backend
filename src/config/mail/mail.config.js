@@ -1,6 +1,7 @@
 const nodemailer = require("nodemailer");
 const { google } = require("googleapis");
 const { createLogger, format, transports } = require("winston");
+const { GMAIL_USER } = require("../config");
 
 // Configure logger
 const logger = createLogger({
@@ -312,6 +313,60 @@ class MailService {
         `);
     }
 
+    centerRegistrationAdminNotificationTemplate(centerDoc) {
+        const mapLink = `https://www.google.com/maps?q=${centerDoc.location.coordinates[1]},${centerDoc.location.coordinates[0]}`;
+    
+        return this.generateTemplate(`
+            <h2 style="color: #c0392b;">New Center Registration Pending Review</h2>
+            <p>Hello Admin,</p>
+            
+            <p>A new center registration request has been submitted and is awaiting your review and approval. Below are the submitted details:</p>
+            
+            <div style="margin: 20px 0; padding: 15px; background: #f2f2f2; border-radius: 8px;">
+                <h3 style="color: #34495e; margin-top: 0;">Center Information</h3>
+                <p><strong>Center ID:</strong> ${centerDoc.center_id}</p>
+                <p><strong>Center Name:</strong> ${centerDoc.name}</p>
+                ${
+                    centerDoc.contactInfo.address
+                        ? `<p><strong>Address:</strong> ${centerDoc.contactInfo.address}</p>`
+                        : ""
+                }
+                <p><strong>Registered Email:</strong> ${centerDoc.contactInfo.email}</p>
+                ${
+                    centerDoc.contactInfo.phone
+                        ? `<p><strong>Phone:</strong> ${centerDoc.contactInfo.phone}</p>`
+                        : ""
+                }
+                ${
+                    centerDoc.website
+                        ? `<p><strong>Website:</strong> <a href="${centerDoc.website}">${centerDoc.website}</a></p>`
+                        : ""
+                }
+                <p><strong>Location:</strong> 
+                <a href="${mapLink}" target="_blank">
+                    ${centerDoc.location.coordinates[1].toFixed(6)}, 
+                    ${centerDoc.location.coordinates[0].toFixed(6)}
+                </a>
+                </p>
+                <p><strong>Submitted On:</strong> ${centerDoc.createdAt.toLocaleDateString()}</p>
+                <p><strong>Submitted By:</strong> ${centerDoc.creator.name} &lt;${centerDoc.creator.email}&gt;</p>
+            </div>
+    
+            <div style="margin: 25px 0; padding: 15px; background: #eaf2f8; border-radius: 8px;">
+                <h3 style="color: #2e86c1; margin-top: 0;">Next Steps</h3>
+                <ul style="margin: 15px 0; padding-left: 20px;">
+                    <li>Verify the center's contact details and address</li>
+                    <li>Check the location coordinates and website link</li>
+                    <li>Ensure no duplicate submissions exist</li>
+                </ul>
+                <p>You can approve or reject this registration in the admin dashboard.</p>
+            </div>
+            
+            <p style="color: #7f8c8d; margin-top: 25px;">This is an automated notification for administrative purposes.</p>
+        `);
+    }
+    
+
     // Public email methods
     async sendVerificationEmail(email, userName, token) {
         const html = this.registrationTemplate({ userName, token });
@@ -337,6 +392,16 @@ class MailService {
             html
         );
     }
+
+    async sendCenterRegistrationAdminNotificationEmail(centerDoc) {
+        const html = this.centerRegistrationAdminNotificationTemplate(centerDoc);
+
+        await this.sendEmail(
+            GMAIL_USER,
+            `New Center Registration: ${centerDoc.name} - Pending Review`,
+            html
+        )
+    }
 }
 
 const mailService = new MailService();
@@ -345,5 +410,6 @@ module.exports = {
     sendVerificationEmail: mailService.sendVerificationEmail.bind(mailService),
     sendPasswordResetEmail: mailService.sendPasswordResetEmail.bind(mailService),
     sendWelcomeEmail: mailService.sendWelcomeEmail.bind(mailService),
-    sendCenterRegistrationInitiationEmail: mailService.sendCenterRegistrationInitiationEmail.bind(mailService)
+    sendCenterRegistrationInitiationEmail: mailService.sendCenterRegistrationInitiationEmail.bind(mailService),
+    sendCenterRegistrationAdminNotificationEmail: mailService.sendCenterRegistrationAdminNotificationEmail.bind(mailService)
 };
