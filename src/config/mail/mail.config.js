@@ -251,7 +251,7 @@ class MailService {
             
             <div style="margin: 20px 0; padding: 15px; background: #f8f9fa; border-radius: 8px;">
                 <h3 style="color: #2980b9; margin-top: 0;">Center Details</h3>
-                <p><strong>Center ID:</strong> ${centerDoc._id}</p>
+                <p><strong>Center ID:</strong> ${centerDoc.center_id}</p>
                 <p><strong>Center Name:</strong> ${centerDoc.name}</p>
                 ${
                     centerDoc.contactInfo.address

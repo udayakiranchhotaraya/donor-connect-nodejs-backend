@@ -1,10 +1,15 @@
 const jwt = require('jsonwebtoken');
+const { JWT_ACCESS_SECRET } = require('../config/config');
 
 class JWTMiddleware {
     
     verifyToken(req, res, next) {
         if (req.headers.authorization === undefined) {
             return res.status(401).json({ "message": "Unauthorized - No token provided" });
+        }
+
+        if (!req.headers.authorization || !req.headers.authorization.startsWith('Bearer ')) {
+            return res.status(401).json({ message: "Unauthorized - Invalid authorization header format" });
         }
 
         const token = req.headers.authorization.split(' ')[1].trim();
@@ -14,11 +19,11 @@ class JWTMiddleware {
         }
 
         try {
-            const decoded = jwt.verify(token, process.env.JWT_SECRET);
+            const decoded = jwt.verify(token, JWT_ACCESS_SECRET);
 
             req.user = decoded;
 
-            req.headers['x-user-id'] = decoded.id;
+            req.headers['x-user-id'] = decoded.sub || decoded.id || decoded.user_id;
             req.headers['x-role'] = decoded.role;
             
             return next();
