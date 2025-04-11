@@ -7,6 +7,7 @@ const {
 const generateUUID = require("../utils/uuid.utils");
 const {
     sendCenterRegistrationInitiationEmail,
+    sendCenterRegistrationAdminNotificationEmail,
 } = require("../config/mail/mail.config");
 const mongoose = require("mongoose");
 const { Center, User } = require("../models");
@@ -106,6 +107,15 @@ async function onboardCenter(req, res) {
                 email: user.email,
                 name: `${user.firstName} ${user.lastName}`,
             },
+        });
+
+        await sendCenterRegistrationAdminNotificationEmail({
+            ...centerDocument,
+            creator: {
+                creator_id: user.sub,
+                email: user.email,
+                name: `${user.firstName} ${user.lastName}`
+            }
         });
 
         await session.commitTransaction();
