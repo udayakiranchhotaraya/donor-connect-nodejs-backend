@@ -73,13 +73,56 @@ async function listAllCenters(req, res) {
         const limit = Math.min(Math.max(1, parseInt(req.query.limit) || 10), 100);
         const skip = (page - 1) * limit;
 
+        const filter = {};
+        
+        // Status filter (verification.status)
+        if (req.query.status) {
+            filter['verification.status'] = req.query.status;
+        }
+
+        // Address filter (contactInfo.address)
+        if (req.query.address) {
+            filter['contactInfo.address'] = {
+                $regex: req.query.address,
+                $options: 'i'
+            };
+        }
+
+        // Name search filter
+        if (req.query.name) {
+            filter.name = {
+                $regex: req.query.name,
+                $options: 'i'
+            };
+        }
+
+        // Sorting configuration
+        const validSortFields = ['name', 'createdAt', 'address', 'verification.status'];
+        const sortBy = validSortFields.includes(req.query.sortBy) 
+            ? req.query.sortBy 
+            : 'createdAt';
+        const sortOrder = req.query.sortOrder === 'asc' ? 1 : -1;
+
+        // Field projection
+        const selectedFields = {
+            center_id: 1,
+            name: 1,
+            address: 1,
+            createdAt: 1,
+            contactInfo: 1,
+            status: '$verification.status', // Corrected nested field projection
+            _id: 0
+        };
+
+        // Execute queries with filters
         const [centers, total] = await Promise.all([
-            Center.find()
-                .sort({ createdAt: -1 })
+            Center.find(filter)
+                .select(selectedFields)
+                .sort({ [sortBy]: sortOrder })
                 .skip(skip)
                 .limit(limit)
                 .lean(),
-            Center.countDocuments()
+            Center.countDocuments(filter) // Important: use same filter for count
         ]);
 
         const totalPages = Math.ceil(total / limit);
@@ -92,7 +135,14 @@ async function listAllCenters(req, res) {
                 total,
                 totalPages,
                 hasNextPage: page < totalPages,
-                hasPrevPage: page > 1  
+                hasPrevPage: page > 1,
+                sortBy,
+                sortOrder: sortOrder === 1 ? 'asc' : 'desc',
+                appliedFilters: { // Optional: show active filters
+                    ...(req.query.status && { status: req.query.status }),
+                    ...(req.query.address && { address: req.query.address }),
+                    ...(req.query.name && { name: req.query.name })
+                }
             }
         });
     } catch (error) {
