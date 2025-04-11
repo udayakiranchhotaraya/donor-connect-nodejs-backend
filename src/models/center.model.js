@@ -70,23 +70,30 @@ const CenterSchema = new mongoose.Schema({
     needs: {
         type: [String]
     },
-    verification: [{
+    verification: {
         status: {
             type: String,
             enum: ['pending', 'verified', 'rejected'],
             default: 'pending'
         },
-        document: {
-            name: {
+        documents: [{
+            status: {
                 type: String,
-                required: true
+                enum: ['pending', 'verified', 'rejected'],
+                default: 'pending'
             },
-            url: {
-                type: String,
-                required: true
+            document: {
+                name: {
+                    type: String,
+                    required: true
+                },
+                url: {
+                    type: String,
+                    required: true
+                }
             }
-        }
-    }],
+        }]
+    },
     location: {
         type: {
             type: String,
