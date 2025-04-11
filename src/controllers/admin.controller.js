@@ -110,7 +110,7 @@ async function listAllCenters(req, res) {
             address: 1,
             createdAt: 1,
             contactInfo: 1,
-            status: '$verification.status', // Corrected nested field projection
+            status: '$verification.status',
             _id: 0
         };
 
