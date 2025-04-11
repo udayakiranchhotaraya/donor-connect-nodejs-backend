@@ -73,8 +73,17 @@ async function listAllCenters(req, res) {
         const limit = Math.min(Math.max(1, parseInt(req.query.limit) || 10), 100);
         const skip = (page - 1) * limit;
 
+        const selectedFields = {
+            name: 1,
+            address: 1,
+            createdAt: 1,
+            contactInfo: 1,
+            '_id': 0 // Include _id if needed
+        };
+
         const [centers, total] = await Promise.all([
             Center.find()
+                .select(selectedFields)
                 .sort({ createdAt: -1 })
                 .skip(skip)
                 .limit(limit)
