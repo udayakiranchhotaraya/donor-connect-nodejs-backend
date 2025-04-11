@@ -15,6 +15,7 @@ const {
     validateCoordinatesArray,
     validateLocation,
 } = require("../validators/location.validator");
+const { notifyAdmin } = require("../routes/sse-notifications.router");
 
 async function onboardCenter(req, res) {
     const user = req.user;
@@ -100,6 +101,13 @@ async function onboardCenter(req, res) {
             throw new Error("TOO_MANY_CENTERS");
         }
 
+        notifyAdmin("NEW_CENTER_REGISTRATION_REQUEST_RECEIVED", {
+            center_id: centerDocument.center_id,
+            name: centerDocument.name,
+            email: centerDocument.email,
+            status: centerDocument.status,
+        });
+
         await sendCenterRegistrationInitiationEmail({
             ...centerDocument,
             creator: {
@@ -117,7 +125,7 @@ async function onboardCenter(req, res) {
                 name: `${user.firstName} ${user.lastName}`
             }
         });
-
+        
         await session.commitTransaction();
 
         return res.status(200).json({

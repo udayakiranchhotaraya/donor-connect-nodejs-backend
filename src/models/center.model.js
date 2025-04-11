@@ -73,7 +73,7 @@ const CenterSchema = new mongoose.Schema({
     verification: [{
         status: {
             type: String,
-            enum: ['pending', 'approved', 'rejected'],
+            enum: ['pending', 'verified', 'rejected'],
             default: 'pending'
         },
         document: {
