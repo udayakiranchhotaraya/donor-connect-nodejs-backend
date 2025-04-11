@@ -52,6 +52,13 @@ async function onboardCenter(req, res) {
     try {
         session.startTransaction();
 
+        if (Array.isArray(centerData.verification)) {
+            centerData.verification = centerData.verification.map((item) => ({
+                verification_ref_id: generateUUID(),
+                ...item
+            }));
+        }
+
         const centerDocument = {
             center_id: generateUUID(),
             ...centerData,
