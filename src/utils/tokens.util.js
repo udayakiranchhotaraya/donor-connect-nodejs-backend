@@ -6,7 +6,6 @@ function generateAccessToken(payload) {
 }
 
 function generateVerficationToken(userID, email) {
-    console.log(JWT_VERIFICATION_SECRET)
     return jwt.sign(
         {
             sub: userID,
