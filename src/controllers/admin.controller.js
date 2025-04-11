@@ -154,7 +154,75 @@ async function listAllCenters(req, res) {
     }
 }
 
+async function viewCenterDetails(req, res) {
+    try {
+        const centerID = req.params.centerID;
+
+        if (!centerID || typeof centerID !== 'string') {
+            return res.status(400).json({
+                success: false,
+                message: "Valid centerID is required in URL parameters"
+            });
+        }
+
+        const center = await Center.findOne({ center_id: centerID })
+            .select('-_id -__v')
+            .lean();
+
+        if (!center) {
+            return res.status(404).json({
+                success: false,
+                message: "Center not found with the provided ID"
+            });
+        }
+
+        const creatorId = center.creator.creator_id;
+        const adminId = center.admin_id;
+
+        const [creator, admin] = await Promise.all([
+            User.findOne({ user_id: creatorId })
+                .select('user_id firstName lastName email contactNumber -_id')
+                .lean(),
+            User.findOne({ user_id: adminId })
+                .select('user_id firstName lastName email contactNumber -_id')
+                .lean()
+        ]);
+
+        const responseData = {
+            ...center,
+            creator: {
+                user_id: creator?.user_id,
+                name: `${creator?.firstName} ${creator?.lastName}`,
+                email: creator?.email,
+                contactNumber: creator?.contactNumber
+            },
+            admin: {
+                user_id: admin?.user_id,
+                name: `${admin?.firstName} ${admin?.lastName}`,
+                email: admin?.email,
+                contactNumber: admin?.contactNumber
+            }
+        };
+
+        delete responseData.admin_id;
+
+        res.status(200).json({
+            success: true,
+            data: responseData
+        });
+
+    } catch (error) {
+        console.error('Error fetching center details:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Internal server error',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+}
+
 module.exports = {
     login,
-    listAllCenters
+    listAllCenters,
+    viewCenterDetails
 };
