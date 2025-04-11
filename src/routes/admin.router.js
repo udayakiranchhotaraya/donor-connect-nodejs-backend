@@ -3,6 +3,6 @@ const { listAllCenters } = require("../controllers/admin.controller");
 
 const AdminRouter = express.Router();
 
-AdminRouter.get("/list-all-centers", listAllCenters);
+AdminRouter.get("/centers", listAllCenters);
 
 module.exports = AdminRouter;
