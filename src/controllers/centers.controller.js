@@ -103,32 +103,33 @@ async function onboardCenter(req, res) {
             throw new Error("TOO_MANY_CENTERS");
         }
 
-        notifyAdmin("NEW_CENTER_REGISTRATION_REQUEST_RECEIVED", {
-            center_id: centerDocument.center_id,
-            name: centerDocument.name,
-            email: centerDocument.email,
-            status: centerDocument.status,
-        });
-
-        await sendCenterRegistrationInitiationEmail({
-            ...centerDocument,
-            creator: {
-                creator_id: user.sub,
-                email: user.email,
-                name: `${user.firstName} ${user.lastName}`,
-            },
-        });
-
-        await sendCenterRegistrationAdminNotificationEmail({
-            ...centerDocument,
-            creator: {
-                creator_id: user.sub,
-                email: user.email,
-                name: `${user.firstName} ${user.lastName}`
-            }
-        });
-        
+                
         await session.commitTransaction();
+        
+        await Promise.all([
+            notifyAdmin("NEW_CENTER_REGISTRATION_REQUEST_RECEIVED", {
+                center_id: centerDocument.center_id,
+                name: centerDocument.name,
+                email: centerDocument.email,
+                status: centerDocument.status,
+            }),
+            sendCenterRegistrationInitiationEmail({
+                ...centerDocument,
+                creator: {
+                    creator_id: user.sub,
+                    email: user.email,
+                    name: `${user.firstName} ${user.lastName}`,
+                },
+            }),
+            sendCenterRegistrationAdminNotificationEmail({
+                ...centerDocument,
+                creator: {
+                    creator_id: user.sub,
+                    email: user.email,
+                    name: `${user.firstName} ${user.lastName}`
+                }
+            }),
+        ]);
 
         return res.status(200).json({
             success: true,
