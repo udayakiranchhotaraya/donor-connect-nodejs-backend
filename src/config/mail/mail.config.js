@@ -1,7 +1,7 @@
 const nodemailer = require("nodemailer");
 const { google } = require("googleapis");
 const { createLogger, format, transports } = require("winston");
-const { GMAIL_USER } = require("../config");
+const { GMAIL_USER, CENTER_DASHBOARD_URL } = require("../config");
 
 // Configure logger
 const logger = createLogger({
@@ -315,7 +315,7 @@ class MailService {
 
     centerRegistrationAdminNotificationTemplate(centerDoc) {
         const mapLink = `https://www.google.com/maps?q=${centerDoc.location.coordinates[1]},${centerDoc.location.coordinates[0]}`;
-    
+
         return this.generateTemplate(`
             <h2 style="color: #c0392b;">New Center Registration Pending Review</h2>
             <p>Hello Admin,</p>
@@ -331,7 +331,9 @@ class MailService {
                         ? `<p><strong>Address:</strong> ${centerDoc.contactInfo.address}</p>`
                         : ""
                 }
-                <p><strong>Registered Email:</strong> ${centerDoc.contactInfo.email}</p>
+                <p><strong>Registered Email:</strong> ${
+                    centerDoc.contactInfo.email
+                }</p>
                 ${
                     centerDoc.contactInfo.phone
                         ? `<p><strong>Phone:</strong> ${centerDoc.contactInfo.phone}</p>`
@@ -349,7 +351,9 @@ class MailService {
                 </a>
                 </p>
                 <p><strong>Submitted On:</strong> ${centerDoc.createdAt.toLocaleDateString()}</p>
-                <p><strong>Submitted By:</strong> ${centerDoc.creator.name} &lt;${centerDoc.creator.email}&gt;</p>
+                <p><strong>Submitted By:</strong> ${
+                    centerDoc.creator.name
+                } &lt;${centerDoc.creator.email}&gt;</p>
             </div>
     
             <div style="margin: 25px 0; padding: 15px; background: #eaf2f8; border-radius: 8px;">
@@ -365,7 +369,212 @@ class MailService {
             <p style="color: #7f8c8d; margin-top: 25px;">This is an automated notification for administrative purposes.</p>
         `);
     }
+
+    documentRejectionTemplate(admin, center, documentName, reason, comments) {
+        const mapLink = `https://www.google.com/maps?q=${center.location.coordinates[1]},${center.location.coordinates[0]}`;
+
+        return this.generateTemplate(`
+            <h2 style="color: #dc3545;">Document Rejected - ${documentName}</h2>
+            <p>Dear ${admin.name},</p>
+            
+            <p>The following document for <strong>${
+                center.name
+            }</strong> has been rejected during verification:</p>
+            
+            <div style="margin: 20px 0; padding: 15px; background: #f8f9fa; border-radius: 8px;">
+                <h3 style="color: #2980b9; margin-top: 0;">Rejection Details</h3>
+                <p><strong>Center:</strong> ${center.name} (ID: ${center.id})</p>
+                <p><strong>Document:</strong> ${document}</p>
+                <p><strong>Reason for Rejection:</strong> ${reason}</p>
+                ${
+                    comments
+                        ? `<p><strong>Admin Comments:</strong> ${comments}</p>`
+                        : ""
+                }
+                <p><strong>Location:</strong> 
+                <a href="${mapLink}" target="_blank">
+                    ${center.location.coordinates[1].toFixed(6)}, 
+                    ${center.location.coordinates[0].toFixed(6)}
+                </a>
+                </p>
+            </div>
     
+            <div style="margin: 25px 0; padding: 15px; background: #fff3cd; border-radius: 8px;">
+                <h3 style="color: #856404; margin-top: 0;">Next Steps</h3>
+                <ul style="margin: 15px 0; padding-left: 20px;">
+                    <li>Upload a corrected version of the document</li>
+                    <li>Ensure all documents meet requirements</li>
+                    <li>Resubmit for verification</li>
+                </ul>
+                <p>Contact verification team: 
+                <a href="mailto:verification@donorconnect.org">verification@donorconnect.org</a></p>
+            </div>
+    
+            <p style="color: #7f8c8d; margin-top: 25px;">
+                This rejection does not affect other submitted documents. Check your portal for full status.
+            </p>
+        `);
+    }
+
+    centerVerifiedTemplate(admin, center) {
+        const mapLink = `https://www.google.com/maps?q=${center.location.coordinates[1]},${center.location.coordinates[0]}`;
+
+        return this.generateTemplate(`
+            <h2 style="color: #28a745;">Center Successfully Verified!</h2>
+            <p>Dear ${admin.name},</p>
+            
+            <div style="margin: 20px 0; padding: 15px; background: #f8f9fa; border-radius: 8px;">
+                <h3 style="color: #2980b9; margin-top: 0;">Verification Details</h3>
+                <p><strong>Center ID:</strong> ${center.center_id}</p>
+                <p><strong>Center Name:</strong> ${center.name}</p>
+                <p><strong>Verification Date:</strong> ${center.verification.verificationDate.toLocaleDateString()}</p>
+                <p><strong>Location:</strong> 
+                <a href="${mapLink}" target="_blank">
+                    ${center.location.coordinates[1].toFixed(6)}, 
+                    ${center.location.coordinates[0].toFixed(6)}
+                </a>
+                </p>
+            </div>
+    
+            <div style="margin: 25px 0; padding: 15px; background: #d4edda; border-radius: 8px;">
+                <h3 style="color: #155724; margin-top: 0;">Next Steps</h3>
+                <ul style="margin: 15px 0; padding-left: 20px;">
+                    <li>Your center is now visible to donors</li>
+                    <li>Update needs list regularly</li>
+                    <li>Monitor donation requests</li>
+                </ul>
+                <p>Login to your dashboard: <a href="${CENTER_DASHBOARD_URL}">${CENTER_DASHBOARD_URL}</a></p>
+            </div>
+    
+            <p style="color: #7f8c8d; margin-top: 25px;">
+                Verification remains valid for 12 months. You'll receive reminders 60 days before expiration.
+            </p>
+        `);
+    }
+
+    centerStatusChangeTemplate(center, admin, previousStatus, reason, comments) {
+        const mapLink = `https://www.google.com/maps?q=${center.location.coordinates[1]},${center.location.coordinates[0]}`;
+
+        return this.generateTemplate(`
+            <h2 style="color: ${this.getStatusColor(center.verification.status)};">
+                Center Status Changed: ${center.verification.status.toUpperCase()}
+            </h2>
+            <p>Dear ${admin.name},</p>
+            
+            <div style="margin: 20px 0; padding: 15px; background: #f8f9fa; border-radius: 8px;">
+                <h3 style="color: #2980b9; margin-top: 0;">Status Details</h3>
+                <p><strong>Center:</strong> ${center.name} (${center.center_id})</p>
+                <p><strong>Previous Status:</strong> ${previousStatus.toUpperCase()}</p>
+                <p><strong>New Status:</strong> ${center.verification.status.toUpperCase()}</p>
+                ${reason ? `<p><strong>Reason:</strong> ${reason}</p>` : ''}
+                ${comments ? `<p><strong>Comments:</strong> ${comments}</p>` : ''}
+                <p><strong>Location:</strong> 
+                    <a href="${mapLink}" target="_blank">
+                        ${center.location.coordinates[1].toFixed(6)}, 
+                        ${center.location.coordinates[0].toFixed(6)}
+                    </a>
+                </p>
+            </div>
+
+            <div style="margin: 25px 0; padding: 15px; background: ${this.getStatusBackground(center.verification.status)}; border-radius: 8px;">
+                <h3 style="color: ${this.getStatusTextColor(center.verification.status)}; margin-top: 0;">
+                    Next Steps
+                </h3>
+                ${this.getStatusInstructions(center.verification.status)}
+            </div>
+
+            <p style="color: #7f8c8d; margin-top: 25px;">
+                ${this.getStatusFooterText(center.verification.status)}
+            </p>
+        `);
+    }
+
+    getStatusColor(status) {
+        const colors = {
+            rejected: '#dc3545',
+            verified: '#28a745',
+            pending: '#ffc107'
+        };
+        return colors[status] || '#6c757d';
+    }
+
+    getStatusBackground(status) {
+        const backgrounds = {
+            rejected: '#fff3cd',
+            verified: '#d4edda',
+            pending: '#fff3cd'
+        };
+        return backgrounds[status] || '#f8f9fa';
+    }
+
+    getStatusInstructions(status) {
+        const instructions = {
+            rejected: `
+                <ul style="margin: 15px 0; padding-left: 20px;">
+                    <li>Review rejection reasons below</li>
+                    <li>Address all documentation issues</li>
+                    <li>Resubmit complete application</li>
+                    <li>Allow 72 hours for re-review after resubmission</li>
+                </ul>
+                <p>Contact verification team for clarification:
+                    <a href="mailto:${this.mailConfig.verificationEmail}">
+                        ${this.mailConfig.verificationEmail}
+                    </a>
+                </p>
+            `,
+            verified: `
+                <ul style="margin: 15px 0; padding-left: 20px;">
+                    <li>Review and update center needs list</li>
+                    <li>Verify contact information accuracy</li>
+                    <li>Monitor donation requests dashboard</li>
+                    <li>Schedule annual re-verification reminder</li>
+                </ul>
+                <p>Access center portal:
+                    <a href="${this.mailConfig.portalUrl}">
+                        ${this.mailConfig.portalUrl}
+                    </a>
+                </p>
+            `,
+            pending: `
+                <ul style="margin: 15px 0; padding-left: 20px;">
+                    <li>Ensure all documents are submitted</li>
+                    <li>Verify contact information accuracy</li>
+                    <li>Monitor email for update requests</li>
+                    <li>Allow 5-7 business days for processing</li>
+                </ul>
+                <p>Check application status:
+                    <a href="${this.mailConfig.statusUrl}">
+                        ${this.mailConfig.statusUrl}
+                    </a>
+                </p>
+            `,
+            default: `
+                <p>No specific instructions available for current status.
+                Contact support for assistance:
+                    <a href="mailto:${this.mailConfig.supportEmail}">
+                        ${this.mailConfig.supportEmail}
+                    </a>
+                </p>
+            `
+        };
+    
+        return instructions[status] || instructions.default;
+    }
+    
+    getStatusFooterText(status) {
+        const footerMessages = {
+            rejected: `This center is temporarily deactivated until resubmission and re-verification. 
+                     All associated donor connections have been paused.`,
+            verified: `Verification valid for 365 days from approval date. 
+                      You'll receive renewal reminders starting 60 days before expiration.`,
+            pending: `Application processing time may vary based on submission volume. 
+                     Urgent requests? Contact our priority support team.`,
+            default: `This is an automated status notification. 
+                     Please do not reply to this email.`
+        };
+    
+        return footerMessages[status] || footerMessages.default;
+    }
 
     // Public email methods
     async sendVerificationEmail(email, userName, token) {
@@ -394,13 +603,55 @@ class MailService {
     }
 
     async sendCenterRegistrationAdminNotificationEmail(centerDoc) {
-        const html = this.centerRegistrationAdminNotificationTemplate(centerDoc);
+        const html =
+            this.centerRegistrationAdminNotificationTemplate(centerDoc);
 
         await this.sendEmail(
             GMAIL_USER,
             `New Center Registration: ${centerDoc.name} - Pending Review`,
             html
-        )
+        );
+    }
+
+    async sendDocumentRejectionEmail({
+        admin,
+        center,
+        documentName,
+        reason,
+        comments,
+    }) {
+        const html = this.documentRejectionTemplate(
+            admin,
+            center,
+            documentName,
+            reason,
+            comments
+        );
+
+        await this.sendEmail(
+            admin.email,
+            `Document Rejected - ${documentName}`,
+            html
+        );
+    }
+
+    async sendCenterVerifiedEmail({ admin, center }) {
+        const html = this.centerVerifiedTemplate(admin, center);
+        await this.sendEmail(
+            admin.email,
+            `Center Verified - ${center.name}`,
+            html
+        );
+    }
+
+    sendCenterStatusChangeEmail({ center, admin, previousStatus, reason, comments }) {
+        const html = this.centerStatusChangeTemplate(center, admin, previousStatus, reason, comments);
+        
+        return this.sendEmail(
+            admin.email,
+            `Center Status Updated - ${center.name}`,
+            html
+        );
     }
 }
 
@@ -411,5 +662,8 @@ module.exports = {
     sendPasswordResetEmail: mailService.sendPasswordResetEmail.bind(mailService),
     sendWelcomeEmail: mailService.sendWelcomeEmail.bind(mailService),
     sendCenterRegistrationInitiationEmail: mailService.sendCenterRegistrationInitiationEmail.bind(mailService),
-    sendCenterRegistrationAdminNotificationEmail: mailService.sendCenterRegistrationAdminNotificationEmail.bind(mailService)
+    sendCenterRegistrationAdminNotificationEmail: mailService.sendCenterRegistrationAdminNotificationEmail.bind(mailService),
+    sendDocumentRejectionEmail: mailService.sendDocumentRejectionEmail.bind(mailService),
+    sendCenterVerifiedEmail: mailService.sendCenterVerifiedEmail.bind(mailService),
+    sendCenterStatusChangeEmail: mailService.sendCenterStatusChangeEmail.bind(mailService)
 };
