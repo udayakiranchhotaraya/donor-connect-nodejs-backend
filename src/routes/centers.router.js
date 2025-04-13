@@ -6,5 +6,5 @@ const CenterRouter = express.Router();
 
 CenterRouter.post('/login', centerAdminLogin);
 CenterRouter.post('/onboard', verifyToken, onboardCenter);
-CenterRouter.post('/create-need', verifyToken, checkBan, createNeed);
+CenterRouter.post('/create-need/:centerId', verifyToken, checkBan, createNeed);
 module.exports = CenterRouter;
