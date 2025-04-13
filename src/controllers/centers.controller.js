@@ -177,7 +177,7 @@ async function onboardCenter(req, res) {
 async function createNeed(req, res) {
     try {
         const user = req.user;
-        const centerId = req.params.center_id;
+        const centerId = req.params.centerId;
         const session = await mongoose.startSession();
 
         session.startTransaction();
@@ -221,8 +221,6 @@ async function createNeed(req, res) {
         session.endSession();
     }
 }
-
-
 module.exports = {
     onboardCenter,
     createNeed
