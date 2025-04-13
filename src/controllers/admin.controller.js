@@ -444,10 +444,146 @@ async function updateCenterVerificationStatus(req, res) {
     }
 }
 
+async function banCenter (req, res) {
+    try {
+        const { centerID } = req.params;
+        const { reason, comments } = req.body;
+        const adminUser = req.user;
+
+        if (!reason) {
+            return res.status(400).json({
+                success: false,
+                message: "Reason is required for banning"
+            });
+        }
+
+        const center = await Center.findOne({ center_id: centerID });
+        if (!center) {
+            return res.status(404).json({ 
+                success: false, 
+                message: "Center not found" 
+            });
+        }
+
+        if (center.isBanned) {
+            return res.status(400).json({
+                success: false,
+                message: "Center is already banned"
+            });
+        }
+
+        const banDetails = {
+            reason,
+            comments: comments || '',
+            bannedAt: new Date(),
+            bannedBy: adminUser._id,
+            previousVerificationStatus: center.verification.status,
+            documentStatuses: center.verification.documents.map(doc => ({
+                document_ref_id: doc.document_ref_id,
+                previousStatus: doc.status
+            }))
+        };
+
+        center.isBanned = true;
+        center.verification.status = 'suspended';
+        center.banDetails = banDetails;
+        
+        center.verification.documents.forEach(doc => {
+            doc.status = 'suspended';
+        });
+
+        await center.save();
+
+        const mailer = new EmailService();
+        await mailer.sendCenterBannedNotification({
+            center: center.toObject(),
+            admin: {
+                name: adminUser.name ?? `${adminUser.firstName} ${adminUser.lastName}`,
+                email: adminUser.email
+            },
+            banDetails
+        });
+
+        res.status(200).json({
+            success: true,
+            data: {
+                isBanned: true,
+                bannedAt: center.banDetails.bannedAt
+            }
+        });
+
+    } catch (error) {
+        console.error('Ban error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Internal server error',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+};
+
+async function unbanCenter(req, res) {
+    try {
+        const { centerID } = req.params;
+        const adminUser = req.user;
+
+        const center = await Center.findOne({ center_id: centerID });
+        if (!center) {
+            return res.status(404).json({
+                success: false,
+                message: "Center not found"
+            });
+        }
+
+        if (!center.isBanned) {
+            return res.status(400).json({
+                success: false,
+                message: "Center is not banned"
+            });
+        }
+
+        center.verification.status = center.banDetails.previousVerificationStatus;
+        center.verification.documents.forEach((doc, index) => {
+            doc.status = center.banDetails.documentStatuses[index].previousStatus;
+        });
+
+        delete center.isBanned;
+        delete center.banDetails;
+
+        await center.save();
+
+        const mailer = new EmailService();
+        await mailer.sendCenterUnbannedNotification({
+            center: center.toObject(),
+            admin: {
+                name: adminUser.name ?? `${adminUser.firstName} ${adminUser.lastName}`,
+                email: adminUser.email
+            }
+        });
+
+        res.status(200).json({
+            success: true,
+            data: {
+                isBanned: false
+            }
+        });
+
+    } catch (error) {
+        console.error('Unban error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Internal server error',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+};
+
 module.exports = {
     login,
     listAllCenters,
     viewCenterDetails,
     verifyDocuments,
-    updateCenterVerificationStatus
+    updateCenterVerificationStatus,
+    banCenter,
+    unbanCenter
 };
