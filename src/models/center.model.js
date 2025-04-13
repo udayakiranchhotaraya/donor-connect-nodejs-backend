@@ -147,7 +147,7 @@ const CenterSchema = new mongoose.Schema({
         type: String,
         required: true
     }
-}, { strict: false });
+}, { strict: false, timestamps: true });
 
 const CenterModel = mongoose.model('Center', CenterSchema);
 module.exports = CenterModel;
