@@ -171,32 +171,33 @@ async function onboardCenter(req, res) {
 }
 
 async function createNeed(req, res) {
+    const session = await mongoose.startSession();
+
     try {
         const user = req.user;
         const centerId = req.params.centerId;
-        const session = await mongoose.startSession();
 
         session.startTransaction();
 
-        const center = await Center.findOne(
-            { center_id: centerId },
-            { session }
-        );
+        const center = await Center.findOne({ center_id: centerId }).session(session);
         if (!center) {
+            await session.abortTransaction();
             return res.status(404).json({
                 success: false,
                 message: ERROR_MESSAGES.CENTER_NOT_FOUND,
             });
         }
+
         const needData = req.body;
         const centerDocument = {
             donation_center: centerId,
             ...needData,
-        }
+        };
 
-        await Need.create(centerDocument, { session });
+        await Need.create([centerDocument], { session });
         await session.commitTransaction();
 
+        return res.status(201).json({ success: true, message: "Need created successfully" });
     } catch (error) {
         await session.abortTransaction();
         console.error("Need creation error:", error);
