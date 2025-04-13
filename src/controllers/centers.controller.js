@@ -16,6 +16,8 @@ const {
     validateLocation,
 } = require("../validators/location.validator");
 const { notifyAdmin } = require("../routes/sse-notifications.router");
+const bcrypt = require('bcrypt');
+const { generateAccessToken } = require("../utils/tokens.util");
 
 async function onboardCenter(req, res) {
     const user = req.user;
@@ -215,8 +217,113 @@ async function createNeed(req, res) {
     }
 }
 
+async function centerAdminLogin(req, res) {
+    try {
+        const { candidateEmail, candidatePassword } = req.body;
+        const user = await User.findOne(
+            {
+                email: new RegExp(`^${candidateEmail}$`, "i"),
+                isDeleted: { $ne: true },
+            },
+        ).lean();
+
+        if (!user) {
+            return res.status(401).json({
+                success: false,
+                status: 401,
+                error: ERROR_MESSAGES.INVALID_CREDENTIALS,
+            });
+        }
+
+        if (!user.isVerified) {
+            return res.status(403).json({
+                success: false,
+                status: 403,
+                error: ERROR_MESSAGES.USER_NOT_VERIFIED,
+            });
+        }
+
+        if (!user.roles.includes('center-admin')) {
+            return res.status(403).json({
+                success: false,
+                status: 403,
+                error: ERROR_MESSAGES.USER_NOT_CENTER_ADMIN,
+            });
+        }
+
+        if (!user.password) {
+            const oauthMethods = user.loginMethods?.filter((m) =>
+                Object.keys(OAUTH_PROVIDERS).includes(m.toUpperCase())
+            );
+
+            if (oauthMethods.length) {
+                return res.status(400).json({
+                    success: false,
+                    status: 400,
+                    error: `Account registered via ${oauthMethods.join(" or ")}. Use social login.`,
+                });
+            }
+        }
+
+        const validPassword = await bcrypt.compare(
+            candidatePassword,
+            user.password
+        );
+        if (!validPassword) {
+            return res.status(401).json({
+                success: false,
+                status: 401,
+                error: ERROR_MESSAGES.INVALID_CREDENTIALS,
+            });
+        }
+
+        delete user.password;
+
+        const userCenters = user.centers || [];
+        const centers = await Center.find(
+            { center_id: { $in: userCenters } },
+            { 
+                center_id: 1,
+                name: 1,
+                _id: 0
+            }
+        ).lean();
+
+        return res.status(200).json({
+            success: true,
+            status: 200,
+            message: SUCCESS_MESSAGES.USER_SIGNED_IN,
+            data: {
+                user: {
+                    id: user.user_id,
+                    email: user.email,
+                    firstName: user.firstName,
+                    lastName: user.lastName,
+                    verified: user.isVerified,
+                    roles: user.roles,
+                },
+                centers,
+            },
+            tokens: {
+                accessToken: generateAccessToken({
+                    sub: user.user_id,
+                    ...user
+                }),
+            },
+        });
+        
+    } catch (error) {
+        console.error("Login error:", error);
+        return res.status(500).json({
+            success: false,
+            status: 500,
+            error: ERROR_MESSAGES.INTERNAL_SERVER_ERROR,
+        });
+    }
+}
 
 module.exports = {
     onboardCenter,
-    createNeed
+    centerAdminLogin,
+    createNeed,
 };
