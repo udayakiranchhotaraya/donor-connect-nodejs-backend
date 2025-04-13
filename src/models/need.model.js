@@ -6,7 +6,7 @@ const NeedsSchema = new mongoose.Schema({
         type: String,
         required: true,
         unique: true,
-        default: genrateUUID(),
+        default: generateUUID(),
     },
     donation_center: {
         type: String,

@@ -198,7 +198,7 @@ async function createNeed(req, res) {
             ...needData,
         }
 
-        await Need.create([centerDocument], { session });
+        await Need.create(centerDocument, { session });
         await session.commitTransaction();
 
     } catch (error) {
