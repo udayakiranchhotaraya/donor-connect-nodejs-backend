@@ -2,6 +2,7 @@ const mongoose = require("mongoose");
 const validator = require("validator");
 const bcrypt = require("bcrypt");
 const { validateLocation } = require("../validators/location.validator");
+const generateUUID = require("../utils/uuid.utils")
 
 const CenterSchema = new mongoose.Schema({
     center_id: {
@@ -73,14 +74,15 @@ const CenterSchema = new mongoose.Schema({
     verification: {
         status: {
             type: String,
-            enum: ['pending', 'verified', 'rejected'],
+            enum: ['pending', 'verified', 'rejected', 'suspended'],
             default: 'pending'
         },
         documents: [{
-            status: {
+            _id: false,
+            document_ref_id: {
                 type: String,
-                enum: ['pending', 'verified', 'rejected'],
-                default: 'pending'
+                required: true,
+                default: generateUUID()
             },
             document: {
                 name: {
@@ -91,6 +93,11 @@ const CenterSchema = new mongoose.Schema({
                     type: String,
                     required: true
                 }
+            },
+            status: {
+                type: String,
+                enum: ['pending', 'verified', 'rejected', 'suspended'],
+                default: 'pending'
             }
         }]
     },

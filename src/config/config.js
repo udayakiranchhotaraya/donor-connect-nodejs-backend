@@ -42,6 +42,7 @@ const CONFIG_PARAM = {
         SMTP_FROM: process.env.SMTP_FROM,
         FRONTEND_BASE_URL:
             process.env.FRONTEND_BASE_URL ?? `http://localhost:4001`,
+        CENTER_DASHBOARD_URL: process.env.CENTER_DASHBOARD_URL,
         TABLE_NAMES: {
             CENTER_SETUP: TABLE_NAMES.CENTER_SETUP,
             USERS: TABLE_NAMES.USERS,
@@ -77,6 +78,7 @@ const CONFIG_PARAM = {
         SMTP_FROM: process.env.SMTP_FROM,
         FRONTEND_BASE_URL:
             process.env.FRONTEND_BASE_URL ?? `http://localhost:4001`,
+        CENTER_DASHBOARD_URL: process.env.CENTER_DASHBOARD_URL,
         TABLE_NAMES: {
             CENTER_SETUP: TABLE_NAMES.CENTER_SETUP,
             USERS: TABLE_NAMES.USERS,
@@ -114,6 +116,7 @@ const SMTP_USER = CONFIG_PARAM[ENVIRONMENT].SMTP_USER;
 const SMTP_PASS = CONFIG_PARAM[ENVIRONMENT].SMTP_PASS;
 const SMTP_FROM = CONFIG_PARAM[ENVIRONMENT].SMTP_FROM;
 const FRONTEND_BASE_URL = CONFIG_PARAM[ENVIRONMENT].FRONTEND_BASE_URL;
+const CENTER_DASHBOARD_URL = CONFIG_PARAM[ENVIRONMENT].CENTER_DASHBOARD_URL;
 const AI_API_URL = CONFIG_PARAM[ENVIRONMENT].AI_API_URL;
 const AI_API_KEY = CONFIG_PARAM[ENVIRONMENT].AI_API_KEY;
 const GOOGLE_OAUTH_CONFIG = CONFIG_PARAM[`${ENVIRONMENT}`].GOOGLE_OAUTH_CONFIG;
@@ -171,7 +174,8 @@ const ERROR_MESSAGES = {
     USER_CREATION_FAILED: "Failed to create user.",
     USER_UPDATE_FAILED: "Failed to update user.",
     USER_DELETION_FAILED: "Failed to delete user.",
-    USER_NOT_VERIFIED: "Please verify your account to continue",
+    USER_NOT_VERIFIED: "Please verify your account to continue.",
+    USER_NOT_CENTER_ADMIN: "You are not a center admin.",
     UNAUTHORIZED: "You are not authorized to perform this action.",
     DONATION_NOT_FOUND: "Donation not found.",
     DONATION_CREATION_FAILED: "Failed to create donation.",
@@ -226,6 +230,7 @@ module.exports = {
     SMTP_PASS,
     SMTP_FROM,
     FRONTEND_BASE_URL,
+    CENTER_DASHBOARD_URL,
     AI_API_URL,
     AI_API_KEY,
     GOOGLE_OAUTH_CONFIG,
