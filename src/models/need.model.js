@@ -44,7 +44,6 @@ const NeedsSchema = new mongoose.Schema({
         enum: ['open', 'fulfilled', 'closed'],
         default: 'open',
     }
-    
 }, {
   timestamps: true
 });
