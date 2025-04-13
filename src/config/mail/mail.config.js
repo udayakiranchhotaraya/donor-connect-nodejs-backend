@@ -576,6 +576,71 @@ class MailService {
         return footerMessages[status] || footerMessages.default;
     }
 
+    centerBannedTemplate(admin, center, banDetails) {
+        const mapLink = `https://www.google.com/maps?q=${center.location.coordinates[1]},${center.location.coordinates[0]}`;
+    
+        return this.generateTemplate(`
+            <h2 style="color: #dc3545;">Center Banned!</h2>
+            <p>Dear ${admin.name},</p>
+    
+            <div style="margin: 20px 0; padding: 15px; background: #f8d7da; border-radius: 8px;">
+                <h3 style="color: #721c24; margin-top: 0;">Ban Details</h3>
+                <p><strong>Center ID:</strong> ${center.center_id}</p>
+                <p><strong>Center Name:</strong> ${center.name}</p>
+                <p><strong>Banned At:</strong> ${banDetails.bannedAt.toLocaleDateString()}</p>
+                <p><strong>Reason:</strong> ${banDetails.reason}</p>
+                ${banDetails.comments ? `<p><strong>Comments:</strong> ${banDetails.comments}</p>` : ''}
+                <p><strong>Location:</strong> 
+                <a href="${mapLink}" target="_blank">
+                    ${center.location.coordinates[1].toFixed(6)}, 
+                    ${center.location.coordinates[0].toFixed(6)}
+                </a>
+                </p>
+            </div>
+    
+            <div style="margin-top: 25px;">
+                <p style="color: #7f8c8d;">
+                    The center's verification status has been suspended. Contact support for further details or appeal.
+                </p>
+            </div>
+        `);
+    }
+
+    centerUnbannedTemplate(admin, center) {
+        const mapLink = `https://www.google.com/maps?q=${center.location.coordinates[1]},${center.location.coordinates[0]}`;
+    
+        return this.generateTemplate(`
+            <h2 style="color: #28a745;">Center Unbanned Successfully!</h2>
+            <p>Dear ${admin.name},</p>
+            
+            <div style="margin: 20px 0; padding: 15px; background: #f8f9fa; border-radius: 8px;">
+                <h3 style="color: #2980b9; margin-top: 0;">Details</h3>
+                <p><strong>Center ID:</strong> ${center.center_id}</p>
+                <p><strong>Center Name:</strong> ${center.name}</p>
+                <p><strong>Location:</strong> 
+                <a href="${mapLink}" target="_blank">
+                    ${center.location.coordinates[1].toFixed(6)}, 
+                    ${center.location.coordinates[0].toFixed(6)}
+                </a>
+                </p>
+            </div>
+    
+            <div style="margin: 25px 0; padding: 15px; background: #d4edda; border-radius: 8px;">
+                <h3 style="color: #155724; margin-top: 0;">Next Steps</h3>
+                <ul style="margin: 15px 0; padding-left: 20px;">
+                    <li>Your center is now reinstated</li>
+                    <li>Ensure compliance with verification requirements</li>
+                    <li>Update needs list regularly</li>
+                </ul>
+                <p>Login to your dashboard: <a href="${CENTER_DASHBOARD_URL}">${CENTER_DASHBOARD_URL}</a></p>
+            </div>
+    
+            <p style="color: #7f8c8d; margin-top: 25px;">
+                Please ensure adherence to all guidelines to avoid future bans.
+            </p>
+        `);
+    }
+
     // Public email methods
     async sendVerificationEmail(email, userName, token) {
         const html = this.registrationTemplate({ userName, token });
@@ -653,6 +718,24 @@ class MailService {
             html
         );
     }
+
+    async sendCenterBannedNotification({ admin, center, banDetails }) {
+        const html = this.centerBannedTemplate(admin, center, banDetails);
+        await this.sendEmail(
+            admin.email,
+            `Center Banned - ${center.name}`,
+            html
+        );
+    }
+
+    async sendCenterUnbannedNotification({ admin, center }) {
+        const html = this.centerUnbannedTemplate(admin, center);
+        await this.sendEmail(
+            admin.email,
+            `Center Unbanned - ${center.name}`,
+            html
+        );
+    }
 }
 
 const mailService = new MailService();
@@ -665,5 +748,7 @@ module.exports = {
     sendCenterRegistrationAdminNotificationEmail: mailService.sendCenterRegistrationAdminNotificationEmail.bind(mailService),
     sendDocumentRejectionEmail: mailService.sendDocumentRejectionEmail.bind(mailService),
     sendCenterVerifiedEmail: mailService.sendCenterVerifiedEmail.bind(mailService),
-    sendCenterStatusChangeEmail: mailService.sendCenterStatusChangeEmail.bind(mailService)
+    sendCenterStatusChangeEmail: mailService.sendCenterStatusChangeEmail.bind(mailService),
+    sendCenterBannedNotification: mailService.sendCenterBannedNotification.bind(mailService),
+    sendCenterUnbannedNotification: mailService.sendCenterUnbannedNotification.bind(mailService)
 };

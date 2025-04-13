@@ -3,6 +3,8 @@ const {
     sendDocumentRejectionEmail,
     sendCenterVerifiedEmail,
     sendCenterStatusChangeEmail,
+    sendCenterBannedNotification,
+    sendCenterUnbannedNotification,
 } = require("../config/mail/mail.config");
 const { User, Center } = require("../models");
 const { generateAccessToken } = require("../utils/tokens.util");
@@ -494,8 +496,7 @@ async function banCenter (req, res) {
 
         await center.save();
 
-        const mailer = new EmailService();
-        await mailer.sendCenterBannedNotification({
+        await sendCenterBannedNotification({
             center: center.toObject(),
             admin: {
                 name: adminUser.name ?? `${adminUser.firstName} ${adminUser.lastName}`,
@@ -552,8 +553,7 @@ async function unbanCenter(req, res) {
 
         await center.save();
 
-        const mailer = new EmailService();
-        await mailer.sendCenterUnbannedNotification({
+        await sendCenterUnbannedNotification({
             center: center.toObject(),
             admin: {
                 name: adminUser.name ?? `${adminUser.firstName} ${adminUser.lastName}`,
