@@ -10,7 +10,7 @@ const {
     sendCenterRegistrationAdminNotificationEmail,
 } = require("../config/mail/mail.config");
 const mongoose = require("mongoose");
-const { Center, User } = require("../models");
+const { Center, User, Need } = require("../models");
 const {
     validateCoordinatesArray,
     validateLocation,
@@ -174,6 +174,56 @@ async function onboardCenter(req, res) {
     }
 }
 
+async function createNeed(req, res) {
+    try {
+        const user = req.user;
+        const centerId = req.params.center_id;
+        const session = await mongoose.startSession();
+
+        session.startTransaction();
+
+        const center = await Center.findOne(
+            { center_id: centerId },
+            { session }
+        );
+        if (!center) {
+            return res.status(404).json({
+                success: false,
+                message: ERROR_MESSAGES.CENTER_NOT_FOUND,
+            });
+        }
+        const needData = req.body;
+        const centerDocument = {
+            donation_center: centerId,
+            ...needData,
+        }
+
+        await Need.create([centerDocument], { session });
+        await session.commitTransaction();
+
+    } catch (error) {
+        await session.abortTransaction();
+        console.error("Need creation error:", error);
+
+        if (error.name === "ValidationError") {
+            return res.status(400).json({
+                success: false,
+                error: "Validation failed: " + error.message,
+            });
+        }
+
+        return res.status(500).json({
+            success: false,
+            message: ERROR_MESSAGES.INTERNAL_SERVER_ERROR,
+            error: error.message,
+        });
+    } finally {
+        session.endSession();
+    }
+}
+
+
 module.exports = {
     onboardCenter,
+    createNeed
 };
