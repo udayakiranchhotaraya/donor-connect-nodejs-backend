@@ -44,9 +44,7 @@ const NeedsSchema = new mongoose.Schema({
         enum: ['open', 'fulfilled', 'closed'],
         default: 'open',
     }
-}, {
-  timestamps: true
-});
+}, { strict: false, timestamps: true });
 
 const NeedsModel = mongoose.model('Need', NeedsSchema);
 module.exports = NeedsModel;

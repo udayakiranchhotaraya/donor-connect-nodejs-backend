@@ -12,9 +12,10 @@ const { generateUUID } = require("../utils/uuid.utils");
 const {
     sendCenterRegistrationInitiationEmail,
     sendCenterRegistrationAdminNotificationEmail,
+    sendContributionReceipt,
 } = require("../config/mail/mail.config");
 const mongoose = require("mongoose");
-const { Center, User, Need } = require("../models");
+const { Center, User, Need, Contribution } = require("../models");
 const {
     validateCoordinatesArray,
     validateLocation,
@@ -206,7 +207,7 @@ async function onboardCenter(req, res) {
 
         return res.status(200).json({
             success: true,
-            message: SUCCESS_MESSAGES.CENTER_CREATED,
+            message: SUCCESS_MESSAGES.CENTER_REGISTRATION_INITIATED,
         });
     } catch (error) {
         await session.abortTransaction();
@@ -273,7 +274,6 @@ async function createNeed(req, res) {
     const session = await mongoose.startSession();
 
     try {
-        const user = req.user;
         const centerId = req.params.centerId;
 
         session.startTransaction();
@@ -322,18 +322,90 @@ async function createNeed(req, res) {
     }
 }
 
-async function getMyCreatedNeedsForAdmin(req, res){
+async function getMyCreatedNeeds(req, res) {
     try {
-        const centerId = req.params.centerId
+        const centerId = req.params.centerId;
+        // Set up pagination parameters
+        const page = Math.max(1, parseInt(req.query.page) || 1);
+        const limit = Math.min(Math.max(1, parseInt(req.query.limit) || 10), 100);
+        const skip = (page - 1) * limit;
 
-        const needs = await Need.find({ donation_center: centerId });
+        // Build up filter criteria. The donation_center filter is mandatory.
+        const filter = { donation_center: centerId };
 
-        if(needs?.length < 0){
-            return res.status(200).json({ message: "No needs created." })
+        // Optional status filter
+        if (req.query.status) {
+            filter.status = req.query.status;
         }
-        return res.status(200).json({message:"Needs Found.", data: needs });
+        
+        // Optional item filter (with partial, case-insensitive matching)
+        if (req.query.item) {
+            filter.item = {
+                $regex: req.query.item,
+                $options: "i"
+            };
+        }
+        
+        // Optional urgency filter
+        if (req.query.urgency) {
+            filter.urgency = req.query.urgency;
+        }
+        
+        // Optional description filter (e.g., to search by keywords in the description)
+        if (req.query.description) {
+            filter.description = {
+                $regex: req.query.description,
+                $options: "i"
+            };
+        }
+
+        // Sorting configuration. Only allow valid fields.
+        const validSortFields = ["item", "createdAt", "urgency", "status"];
+        const sortBy = validSortFields.includes(req.query.sortBy) ? req.query.sortBy : "createdAt";
+        const sortOrder = req.query.sortOrder === "asc" ? 1 : -1;
+
+        // Execute the paginated query and count in parallel.
+        const [needs, total] = await Promise.all([
+            Need.find(filter)
+                .select('-_id')
+                .sort({ [sortBy]: sortOrder })
+                .skip(skip)
+                .limit(limit)
+                .lean(),
+            Need.countDocuments(filter)
+        ]);
+
+        const totalPages = Math.ceil(total / limit);
+
+        return res.status(200).json({
+            success: true,
+            message: needs.length > 0 ? "Needs found." : "No needs created.",
+            data: needs,
+            pagination: {
+                page,
+                limit,
+                total,
+                totalPages,
+                hasNextPage: page < totalPages,
+                hasPrevPage: page > 1,
+                sortBy,
+                sortOrder: sortOrder === 1 ? "asc" : "desc",
+                appliedFilters: {
+                    donation_center: centerId,
+                    ...(req.query.status && { status: req.query.status }),
+                    ...(req.query.item && { item: req.query.item }),
+                    ...(req.query.urgency && { urgency: req.query.urgency }),
+                    ...(req.query.description && { description: req.query.description })
+                }
+            }
+        });
     } catch (error) {
-        return res.status(500).json({ message: error.message })
+        console.error("Error fetching needs:", error);
+        return res.status(500).json({
+            success: false,
+            message: "Server error occurred while processing your request",
+            error: error.message
+        });
     }
 }
 
@@ -441,9 +513,267 @@ async function centerAdminLogin(req, res) {
     }
 }
 
+// deprecated
+async function updateContribution(req, res) {
+    const session = await mongoose.startSession();
+    try {
+        session.startTransaction();
+
+        // Use contributionId from the route parameters for clarity
+        const contributionId = req.params.contributionId;
+        const { status, quantity, items, user_id } = req.body;
+        const validStatuses = ['pending', 'confirmed', 'cancelled'];
+
+        // Normalize and validate the status if provided
+        const normalizedStatus = status ? status.toLowerCase() : undefined;
+        if (normalizedStatus && !validStatuses.includes(normalizedStatus)) {
+            await session.abortTransaction();
+            return res.status(400).json({ message: 'Invalid status value.' });
+        }
+
+        // Retrieve contribution within the session
+        const contribution = await Contribution.findById(contributionId).session(session);
+        if (!contribution) {
+            await session.abortTransaction();
+            return res.status(404).json({ message: 'Contribution not found.' });
+        }
+
+        // Prevent updating if the contribution is already finalized
+        if (contribution.status === 'confirmed' || contribution.status === 'cancelled') {
+            await session.abortTransaction();
+            return res.status(400).json({ message: 'Cannot update a finalized contribution.' });
+        }
+
+        // Save the original quantity to compute any difference later
+        const originalQuantity = contribution.quantity;
+
+        // Update the status if provided
+        if (normalizedStatus) contribution.status = normalizedStatus;
+
+        // Parse and update quantity if provided; ensure it is a valid number
+        if (quantity !== undefined) {
+            const parsedQuantity = Number(quantity);
+            if (isNaN(parsedQuantity)) {
+                await session.abortTransaction();
+                return res.status(400).json({ message: 'Invalid quantity value. Must be a number.' });
+            }
+            contribution.quantity = parsedQuantity;
+        }
+
+        // Update items if provided
+        if (Array.isArray(items)) {
+            contribution.items = items;
+        }
+
+        // Save the updated contribution
+        await contribution.save({ session });
+
+        // If the contribution has just been confirmed, update the associated need
+        if (normalizedStatus === 'confirmed') {
+            const need = await Need.findOne({ need_id: contribution.need_id }).session(session);
+            if (!need) {
+                await session.abortTransaction();
+                return res.status(404).json({ message: 'Associated need not found.' });
+            }
+            const quantityDiff = contribution.quantity - originalQuantity;
+            await Need.updateOne(
+                { need_id: contribution.need_id },
+                { $inc: { current_received: quantityDiff } },
+                { session }
+            );
+        }
+
+        // Retrieve the user within the session
+        const user = await User.findOne({ user_id }).session(session);
+        if (!user) {
+            await session.abortTransaction();
+            return res.status(404).json({ message: 'User not found.' });
+        }
+
+        // Commit the transaction as all database operations succeeded
+        await session.commitTransaction();
+
+        // After commit, send the receipt for the contribution.
+        await sendContributionReceipt(contribution, user);
+
+        return res.status(200).json({
+            message: 'Contribution updated successfully.',
+            contribution
+        });
+
+    } catch (error) {
+        console.error(error);
+        await session.abortTransaction();
+        return res.status(500).json({ message: 'Internal server error' });
+    } finally {
+        session.endSession();
+    }
+}
+
+async function handleCenterAdminContributionDecision(req, res) {
+    const session = await mongoose.startSession();
+    try {
+        session.startTransaction();
+
+        const contributionId = req.params.contributionId;
+        const { status, quantity, rejectionReason } = req.body;
+
+        const validStatuses = ['confirmed', 'rejected'];
+        if (!status || !validStatuses.includes(status.toLowerCase())) {
+            await session.abortTransaction();
+            return res.status(400).json({ message: 'Invalid status. Allowed statuses: confirmed rejected.' });
+        }
+        const normalizedStatus = status.toLowerCase();
+
+        const contribution = await Contribution.findOne({ contribution_id: contributionId }).session(session);
+        if (!contribution) {
+            await session.abortTransaction();
+            return res.status(404).json({ success: false, message: 'Contribution not found.' });
+        }
+
+        if (contribution.status !== 'pending') {
+            await session.abortTransaction();
+            return res.status(400).json({ success: false, message: 'Contribution already processed.' });
+        }
+
+        let updatedQuantity = contribution.quantity;
+
+        if (normalizedStatus === 'confirmed') {
+            if (quantity !== undefined) {
+                const parsedQuantity = Number(quantity);
+                if (isNaN(parsedQuantity) || parsedQuantity <= 0) {
+                    await session.abortTransaction();
+                    return res.status(400).json({ success: false, message: 'Quantity must be a positive number.' });
+                }
+                updatedQuantity = parsedQuantity;
+            }
+        }
+
+        contribution.status = normalizedStatus;
+        contribution.quantity = updatedQuantity;
+        if (normalizedStatus === 'rejected' && rejectionReason) {
+            contribution.rejection_reason = rejectionReason;
+        }
+        await contribution.save({ session });
+
+        if (normalizedStatus === 'confirmed') {
+            const need = await Need.findOne({ need_id: contribution.need_id }).session(session);
+            if (!need) {
+                await session.abortTransaction();
+                return res.status(404).json({ success: false, message: 'Associated need not found.' });
+            }
+
+            await Need.updateOne(
+                { need_id: contribution.need_id },
+                { $inc: { current_received: updatedQuantity } },
+                { session }
+            );
+        }
+
+        const user = await User.findOne({ user_id: contribution.user_id }).session(session);
+        if (!user) {
+            await session.abortTransaction();
+            return res.status(404).json({ success: false, message: 'User not found.' });
+        }
+
+        await session.commitTransaction();
+        session.endSession();
+
+        await sendContributionReceipt(contribution, user);
+
+        return res.status(200).json({
+            success: true,
+            message: `Contribution ${normalizedStatus} successfully.`,
+            contribution
+        });
+    } catch (error) {
+        console.error(error);
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(500).json({ success: false, message: 'Internal server error' });
+    }
+}
+
+async function getContributionsList(req, res) {
+    try {
+        const centerId = req.params.centerId;
+
+        // Pagination parameters
+        const page = Math.max(1, parseInt(req.query.page) || 1);
+        const limit = Math.min(Math.max(1, parseInt(req.query.limit) || 10), 100);
+        const skip = (page - 1) * limit;
+
+        // Build filter
+        const filter = { center_id: centerId };
+        if (req.query.status) {
+            filter.status = req.query.status;
+        }
+
+        // Sorting configuration
+        const validSortFields = ["createdAt", "quantity", "status"];
+        const sortBy = validSortFields.includes(req.query.sortBy) ? req.query.sortBy : "createdAt";
+        const sortOrder = req.query.sortOrder === "asc" ? 1 : -1;
+
+        // Execute query and count
+        const [list, total] = await Promise.all([
+            Contribution.find(filter)
+                .populate({
+                    path: 'user_id',
+                    select: 'firstName lastName email contactNumber -_id'
+                })
+                .select('-_id')
+                .sort({ [sortBy]: sortOrder })
+                .skip(skip)
+                .limit(limit)
+                .lean(),
+            Contribution.countDocuments(filter)
+        ]);
+
+        // Transform contributions to include user details
+        const transformedList = list.map(({ user_id, ...rest }) => ({
+            ...rest,
+            user_id: user_id?._id || user_id || null,
+            name: user_id ? `${user_id.firstName} ${user_id.lastName}` : null,
+            email: user_id?.email || null,
+            contactNumber: user_id?.contactNumber || null
+        }));        
+
+        const totalPages = Math.ceil(total / limit);
+
+        if (transformedList.length === 0) {
+            return res.status(200).json({ success: true, message: "No contributions found." });
+        }
+
+        return res.status(200).json({
+            success: true,
+            message: "List Found.",
+            data: transformedList,
+            pagination: {
+                page,
+                limit,
+                total,
+                totalPages,
+                hasNextPage: page < totalPages,
+                hasPrevPage: page > 1,
+                sortBy,
+                sortOrder: sortOrder === 1 ? "asc" : "desc",
+                appliedFilters: {
+                    center_id: centerId,
+                    ...(req.query.status && { status: req.query.status })
+                }
+            }
+        });
+    } catch (error) {
+        return res.status(500).json({ success: false, message: "Internal server error" });
+    }
+}
+
 module.exports = {
     upload,
     onboardCenter,
     centerAdminLogin,
     createNeed,
+    getMyCreatedNeeds,
+    handleCenterAdminContributionDecision,
+    getContributionsList
 };

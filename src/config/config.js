@@ -160,6 +160,7 @@ const SUCCESS_MESSAGES = {
     DONATION_FETCHED: "Donations fetched successfully.",
     DONATION_UPDATED: "Donation updated successfully.",
     DONATION_DELETED: "Donation deleted successfully.",
+    CENTER_REGISTRATION_INITIATED: "Center registration initiated successfully.",
     CENTER_CREATED: "Center onboarded successfully.",
     CENTER_FETCHED: "Center fetched successfully.",
     CENTER_UPDATED: "Center updated successfully.",

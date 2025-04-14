@@ -1,4 +1,4 @@
-const { User, Center, Contribution } = require("../models");
+const { User, Center, Contribution, Need } = require("../models");
 const { generateUUID } = require("../utils/uuid.utils");
 const {
     generateVerficationToken,
@@ -13,9 +13,10 @@ const {
 const {
     sendVerificationEmail,
     sendWelcomeEmail,
-    sendContributionReceipt
+    sendContributionReceipt,
 } = require("../config/mail/mail.config");
-const bcrypt = require('bcrypt');
+const bcrypt = require("bcrypt");
+const mongoose = require("mongoose");
 
 async function initiateRegistration(req, res) {
     try {
@@ -80,7 +81,7 @@ async function initiateRegistration(req, res) {
 async function completeRegistration(req, res) {
     try {
         const { password } = req.body;
-        const { sub: userId } = verifyToken(req.query.token, 'verification');
+        const { sub: userId } = verifyToken(req.query.token, "verification");
 
         const user = await User.findOneAndUpdate(
             {
@@ -95,7 +96,7 @@ async function completeRegistration(req, res) {
                     lastUpdatedAt: new Date(),
                 },
             },
-            { returnDocument: 'after' }
+            { returnDocument: "after" }
         );
 
         if (user) {
@@ -123,35 +124,35 @@ async function completeRegistration(req, res) {
     }
 }
 
-async function getNeedsForDonor(req, res) {
+async function getNeeds(req, res) {
     try {
         const { longitude, latitude } = req.query;
-        
+
         let queryPipeline = [
             {
                 $lookup: {
-                    from: 'needs', // reference to the `Needs` collection
-                    localField: 'center_id',
-                    foreignField: 'donation_center',
-                    as: 'needs'
-                }
+                    from: "needs", // reference to the `Needs` collection
+                    localField: "center_id",
+                    foreignField: "donation_center",
+                    as: "needs",
+                },
             },
             {
                 $addFields: {
                     openNeeds: {
                         $filter: {
-                            input: '$needs',
-                            as: 'need',
-                            cond: { $eq: ['$$need.status', 'open'] }
-                        }
-                    }
-                }
+                            input: "$needs",
+                            as: "need",
+                            cond: { $eq: ["$$need.status", "open"] },
+                        },
+                    },
+                },
             },
             {
                 $project: {
-                    needs: 0 // optional: hide all needs except filtered ones
-                }
-            }
+                    needs: 0, // optional: hide all needs except filtered ones
+                },
+            },
         ];
 
         if (longitude && latitude) {
@@ -159,171 +160,313 @@ async function getNeedsForDonor(req, res) {
             const radiusInKm = 20;
             const radiusInRadians = radiusInKm / 6378.1;
 
-            queryPipeline.unshift(
-                {
-                    $geoNear: {
-                        near: {
-                            type: 'Point',
-                            coordinates: coords
-                        },
-                        distanceField: 'distance',
-                        maxDistance: radiusInRadians * 6378.1 * 1000, // convert back to meters
-                        spherical: true
-                    }
-                }
-            );
-        } 
-        queryPipeline.push(
-            {
-                $sort: { createdAt: -1 } // Sort by created_at descending if no geo coordinates
-            }
-        );
+            queryPipeline.unshift({
+                $geoNear: {
+                    near: {
+                        type: "Point",
+                        coordinates: coords,
+                    },
+                    distanceField: "distance",
+                    maxDistance: radiusInRadians * 6378.1 * 1000, // convert back to meters
+                    spherical: true,
+                },
+            });
+        }
+        queryPipeline.push({
+            $sort: { createdAt: -1 }, // Sort by created_at descending if no geo coordinates
+        });
 
         const centers = await Center.aggregate(queryPipeline);
 
-        return res.json({ centers });
+        return res.json({ success: true, centers });
     } catch (error) {
         console.error(error);
-        return res.status(500).json({ message: 'Internal server error' });
+        return res.status(500).json({ success: false, message: "Internal server error" });
     }
 }
 
-async function createContributionForDonor ( req, res) {
+// deprecated
+// async function createContribution(req, res) {
+//     const session = await mongoose.startSession();
+//     session.startTransaction();
+//     try {
+//         const { user_id, need_id, center_id, message } = req.body;
+
+//         if (!user_id || !need_id || !center_id) {
+//             await session.abortTransaction();
+//             session.endSession();
+//             return res
+//                 .status(400)
+//                 .json({ message: "Missing required fields." });
+//         }
+
+//         const contribution = await Contribution.create(
+//             [
+//                 {
+//                     user_id,
+//                     need_id,
+//                     center_id,
+//                     message,
+//                 },
+//             ],
+//             { session }
+//         );
+
+//         // You can optionally add business logic here like initial checks
+
+//         await session.commitTransaction();
+//         session.endSession();
+
+//         res.status(201).json({
+//             message: "Contribution created successfully.",
+//             contribution: contribution[0],
+//         });
+//     } catch (error) {
+//         await session.abortTransaction();
+//         session.endSession();
+//         console.error(error);
+//         res.status(500).json({ message: "Internal server error" });
+//     }
+// }
+
+async function createContribution(req, res) {
     const session = await mongoose.startSession();
     session.startTransaction();
     try {
-        const { user_id, need_id, center_id, message } = req.body;
+        const { message } = req.body;
+        const { need_id } = req.params;
+        const user_id = req.user.sub;
 
-        if (!user_id || !need_id || !center_id) {
+        if (!need_id) {
             await session.abortTransaction();
             session.endSession();
-            return res.status(400).json({ message: 'Missing required fields.' });
+            return res.status(400).json({ success: false, message: "Need ID is required." });
         }
 
-        const contribution = await Contribution.create([{
-            user_id,
-            need_id,
-            center_id,
-            message
-        }], { session });
+        const need = await Need.findOne({ need_id }).session(session);
+        if (!need) {
+            await session.abortTransaction();
+            session.endSession();
+            return res.status(404).json({ success: false, message: "Need not found." });
+        }
 
-        // You can optionally add business logic here like initial checks
+        if (need.status !== 'open') {
+            await session.abortTransaction();
+            session.endSession();
+            return res.status(409).json({ 
+                success: false,
+                message: "Cannot contribute to a closed or fulfilled need."
+            });
+        }
+
+        const contribution = await Contribution.create(
+            {
+                user_id,
+                need_id: need.need_id,
+                center_id: need.donation_center,
+                message
+            },
+            { session }
+        );
 
         await session.commitTransaction();
         session.endSession();
 
-        res.status(201).json({
-            message: 'Contribution created successfully.',
-            contribution: contribution[0]
-        });
-    } catch (error) {
-        await session.abortTransaction();
-        session.endSession();
-        console.error(error);
-        res.status(500).json({ message: 'Internal server error' });
-    }
-}
-
-async function updateContributionForCenter (req, res) {
-    const session = await mongoose.startSession();
-    session.startTransaction();
-
-    try {
-        const centerId = req.params.centerId;
-        const { status, quantity, items, user_id } = req.body;
-
-        const validStatuses = ['pending', 'confirmed', 'cancelled'];
-        if (status && !validStatuses.includes(status)) {
-            await session.abortTransaction();
-            session.endSession();
-            return res.status(400).json({ message: 'Invalid status value.' });
-        }
-
-        const contribution = await Contribution.findById(centerId).session(session);
-        if (!contribution) {
-            await session.abortTransaction();
-            session.endSession();
-            return res.status(404).json({ message: 'Contribution not found.' });
-        }
-
-        // Prevent invalid status change
-        if (contribution.status === 'confirmed' || contribution.status === 'cancelled') {
-            await session.abortTransaction();
-            session.endSession();
-            return res.status(400).json({ message: 'Cannot update a finalized contribution.' });
-        }
-
-        // Update fields if provided
-        if (status) contribution.status = status;
-        if (typeof quantity === 'number') contribution.quantity = quantity;
-        if (Array.isArray(items)) contribution.items = items;
-
-        await contribution.save({ session });
-
-        // If confirmed, add the (new) quantity to the need
-        if (status === 'confirmed') {
-            const need = await Need.findOne({ need_id: contribution.need_id }).session(session);
-            if (!need) {
-                await session.abortTransaction();
-                session.endSession();
-                return res.status(404).json({ message: 'Associated need not found.' });
-            }
-
-            const quantityDiff = contribution.quantity;
-            await Need.updateOne(
-                { need_id: contribution.need_id },
-                { $inc: { current_received: quantityDiff } },
-                { session }
-            );
-        }
-
-        const user = await User.findOne({ user_id: user_id });
-        await sendContributionReceipt(contribution, user);
-
-        await session.commitTransaction();
-        session.endSession();
-
-        res.status(200).json({
-            message: 'Contribution updated successfully.',
+        return res.status(201).json({
+            success: true,
+            message: "Contribution created successfully.",
             contribution
         });
+
     } catch (error) {
         await session.abortTransaction();
         session.endSession();
-        console.error(error);
-        res.status(500).json({ message: 'Internal server error' });
+        console.error("Contribution creation error:", error);
+        return res.status(500).json({ success: false, message: "Internal server error" });
     }
+}
+
+async function getMyContributions(req, res) {
+    try {
+        const userId = req.user.sub;
+        if (!userId) {
+            return res.status(400).json({ success: false, message: "Missing required parameter: userId" });
+        }
+
+        const page = Math.max(1, parseInt(req.query.page) || 1);
+        const limit = Math.min(Math.max(1, parseInt(req.query.limit) || 10), 100);
+        const skip = (page - 1) * limit;
+
+        const validSortFields = ["createdAt", "quantity", "status"];
+        const sortBy = validSortFields.includes(req.query.sortBy) ? req.query.sortBy : "createdAt";
+        const sortOrder = req.query.sortOrder === "asc" ? 1 : -1;
+
+        const matchStage = { user_id: userId };
+        if (req.query.status) {
+            matchStage.status = req.query.status;
+        }
+
+        const aggregationPipeline = [
+            { $match: matchStage },
+            {
+                $lookup: {
+                    from: "centers",
+                    localField: "center_id",
+                    foreignField: "_id",
+                    as: "center"
+                }
+            },
+            { $unwind: { path: "$center", preserveNullAndEmptyArrays: true } },
+            {
+                $project: {
+                    _id: 0,
+                    centerName: "$center.name",
+                    quantity: 1,
+                    status: 1,
+                    message: 1,
+                    rejection_reason: 1
+                }
+            },
+            { $sort: { [sortBy]: sortOrder } },
+            { $skip: skip },
+            { $limit: limit }
+        ];
+
+        const [list, totalResult] = await Promise.all([
+            Contribution.aggregate(aggregationPipeline),
+            Contribution.countDocuments(matchStage)
+        ]);
+
+        const totalPages = Math.ceil(totalResult / limit);
+
+        return res.status(200).json({
+            message: list.length > 0 ? "Contributions found." : "No contributions found.",
+            data: list,
+            pagination: {
+                page,
+                limit,
+                total: totalResult,
+                totalPages,
+                hasNextPage: page < totalPages,
+                hasPrevPage: page > 1,
+                sortBy,
+                sortOrder: sortOrder === 1 ? "asc" : "desc",
+                appliedFilters: {
+                    user_id: userId,
+                    ...(req.query.status && { status: req.query.status })
+                }
+            }
+        });
+    } catch (error) {
+        console.error("Error in getting contributions:", error);
+        res.status(500).json({ success: false, message: "Internal server error" });
+    }
+}
+
+async function cancelContribution(req, res) {
+    try {
+        const contributionId = req.params.contributionId;
+
+        const contribution = await Contribution.findOne({ contribution_id: contributionId });
+
+        if (!contribution) {
+            return res.status(404).json({ success: false, message: "Contribution not found." });
+        }
+
+        if (contribution.status === "cancelled") {
+            return res.status(400).json({ success: false, message: "Contribution is already cancelled." });
+        }
+
+        contribution.status = "cancelled";
+        await contribution.save();
+
+        return res.status(200).json({ success: true, message: "Contribution cancelled successfully." });
+    } catch (error) {
+        console.error("Error in cancelling contribution: ", error);
+        return res.status(500).json({ success: false, message: "Internal server error" });
+    }
+}
+
+async function updateUserProfile(req, res) {
+    try {
+        const userId = req.user.id;
+        const { firstName, lastName, email } = req.body;
+
+        if (!userId) {
+            return res.status(400).json({ success: false, message: "Missing user identifier." });
+        }
+
+        const updateFields = {};
+        if (firstName) updateFields.firstName = firstName.trim();
+        if (lastName) updateFields.lastName = lastName.trim();
+        if (email) updateFields.email = email.trim().toLowerCase();
+
+        const updatedUser = await User.findOneAndUpdate(
+            { user_id: userId },
+            { $set: updateFields },
+            { new: true, runValidators: true }
+        ).select('-password -__v -_id');
+
+        if (!updatedUser) {
+            return res.status(404).json({ success: false, message: "User not found." });
+        }
+
+        return res.status(200).json({
+            success: true,
+            message: "Profile updated successfully.",
+            data: updatedUser
+        });
+    } catch (error) {
+        console.error("Error updating user profile: ", error);
+        return res.status(500).json({ success: false, message: "Internal server error" });
+    }
+}
+
+async function updateUserPassword(req, res) {
+    try {
+        const userId = req.user.id;
+        const { currentPassword, newPassword } = req.body;
+
+        if (!currentPassword || !newPassword) {
+            return res.status(400).json({ success: false, message: "Both current and new passwords are required." });
+        }
+
+        const user = await User.findOne({ user_id: userId });
+
+        if (!user) {
+            return res.status(404).json({ success: false, message: "User not found." });
+        }
+
+        if (!user.password) {
+            return res.status(400).json({ success: false, message: "Password update not allowed for social login users." });
+        }
+
+        const isMatch = await bcrypt.compare(currentPassword, user.password);
+
+        if (!isMatch) {
+            return res.status(401).json({ success: false, message: "Current password is incorrect." });
+        }
+
+        const salt = await bcrypt.genSalt(10);
+        const hashedPassword = await bcrypt.hash(newPassword, salt);
+
+        user.password = hashedPassword;
+        await user.save();
+
+        return res.status(200).json({ success: true, message: "Password updated successfully." });
+    } catch (error) {
+        console.error("Error updating user password: ", error);
+        return res.status(500).json({ success: false, message: "Internal server error" });
+    }
+}
+
+module.exports = {
+    initiateRegistration,
+    completeRegistration,
+    getNeeds,
+    createContribution,
+    getMyContributions,
+    cancelContribution,
+    updateUserProfile,
+    updateUserPassword
 };
-
-async function getContributionListForCenter(req, res){
-    try {
-        const type = req.query.type;
-        const centerId = req.params.centerId;
-
-        const list = await Contribution.find({ center_id:centerId, status: type });
-
-        if(list.length===0){
-            return res.status(200).json({message: "No contributions found."});
-        }
-        return res.status(200).json({ message:"List Found.", data:list });
-    } catch (error) {
-        res.status(500).json({ message: 'Internal server error' });
-    }
-}
-
-async function getMyContributionForDonor(req, res){
-    try {
-        const filter = req.query.filter;
-        const userId = req.query.userId;
-
-        const list = await Contribution.find({ user_id:userId, status: filter });
-        if(list.length===0){
-            return res.status(200).json({message: "No contributions found."});
-        }
-        return res.status(200).json({ message:"List Found.", data:list });
-    } catch (error) {
-        res.status(500).json({ message: 'Internal server error' });
-    }
-}
-
-module.exports = { initiateRegistration, completeRegistration, getNeeds, };

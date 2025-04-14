@@ -1,5 +1,5 @@
 const mongoose = require('mongoose');
-const generateUUID = require('../utils/uuid.utils')
+const { generateUUID } = require('../utils/uuid.utils')
 
 const ContributionSchema = new mongoose.Schema({
     contribution_id: {
@@ -19,24 +19,21 @@ const ContributionSchema = new mongoose.Schema({
         required: true
     },
     center_id: {
-        type: mongoose.Schema.Types.ObjectId,
+        type: String,
         ref: 'Center',
         required: true
     },
     status: {
         type: String,
-        enum: ['pending', 'confirmed', 'cancelled'],
+        enum: ['pending', 'confirmed', 'cancelled', 'rejected'],
         default: 'pending'
     },
     quantity: {
         type: Number,
         default: 0
-    },
-    items: [{
-        type: String
-    }]
+    }
 }, {
-    timestamps: true
+    timestamps: true, strict: false
 });
 
 module.exports = mongoose.model('Contribution', ContributionSchema);
