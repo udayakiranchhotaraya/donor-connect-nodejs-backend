@@ -322,6 +322,21 @@ async function createNeed(req, res) {
     }
 }
 
+async function getMyCreatedNeedsForAdmin(req, res){
+    try {
+        const centerId = req.params.centerId
+
+        const needs = await Need.find({ donation_center: centerId });
+
+        if(needs?.length < 0){
+            return res.status(200).json({ message: "No needs created." })
+        }
+        return res.status(200).json({message:"Needs Found.", data: needs });
+    } catch (error) {
+        return res.status(500).json({ message: error.message })
+    }
+}
+
 async function centerAdminLogin(req, res) {
     try {
         const { candidateEmail, candidatePassword } = req.body;

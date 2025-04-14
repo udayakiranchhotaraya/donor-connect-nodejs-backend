@@ -736,6 +736,26 @@ class MailService {
             html
         );
     }
+
+    async sendContributionReceipt(contribution, user) {
+        try {
+            const itemList = contribution.items.map((item, i) => `<li>${i + 1}. ${item}</li>`).join('');
+            const html = `
+                <h2>Hello ${user.name || 'Donor'},</h2>
+                <p>We deeply appreciate your contribution to our cause. Here is a summary of your donation:</p>
+                <ul>${itemList}</ul>
+                <p><strong>Quantity Donated:</strong> ${contribution.quantity}</p>
+                <p>Status: <strong>${contribution.status}</strong></p>
+                <br/>
+                <p>Thank you for making a difference!</p>
+                <p>— The Donation Center Team</p>
+            `
+            await this.sendEmail(user.email, '🎁 Thank You for Your Contribution!', html);
+
+        } catch (error) {
+            console.error('Failed to send email receipt:', err.message);
+        }
+    }
 }
 
 const mailService = new MailService();
@@ -750,5 +770,6 @@ module.exports = {
     sendCenterVerifiedEmail: mailService.sendCenterVerifiedEmail.bind(mailService),
     sendCenterStatusChangeEmail: mailService.sendCenterStatusChangeEmail.bind(mailService),
     sendCenterBannedNotification: mailService.sendCenterBannedNotification.bind(mailService),
-    sendCenterUnbannedNotification: mailService.sendCenterUnbannedNotification.bind(mailService)
+    sendCenterUnbannedNotification: mailService.sendCenterUnbannedNotification.bind(mailService),
+    sendContributionReceipt: mailService.sendContributionReceipt.bind(mailService)
 };
