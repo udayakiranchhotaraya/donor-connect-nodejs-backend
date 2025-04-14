@@ -2,7 +2,8 @@ const mongoose = require("mongoose");
 const validator = require("validator");
 const bcrypt = require("bcrypt");
 const { validateLocation } = require("../validators/location.validator");
-const generateUUID = require("../utils/uuid.utils")
+const { generateUUID } = require("../utils/uuid.utils");
+const { AWS_S3_BUCKET_NAME } = require("../config/config");
 
 const CenterSchema = new mongoose.Schema({
     center_id: {
@@ -92,6 +93,15 @@ const CenterSchema = new mongoose.Schema({
                 url: {
                     type: String,
                     required: true
+                },
+                s3_key: {
+                    type: String,
+                    required: true
+                },
+                bucket: {
+                    type: String,
+                    required: true,
+                    default: AWS_S3_BUCKET_NAME
                 }
             },
             status: {

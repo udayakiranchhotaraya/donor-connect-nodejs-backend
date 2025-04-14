@@ -3,8 +3,12 @@ const {
     SUCCESS_MESSAGES,
     OPERABLE_CENTER_LIMIT,
     TABLE_NAMES,
+    AWS_REGION,
+    AWS_ACCESS_KEY_ID,
+    AWS_SECRET_ACCESS_KEY,
+    AWS_S3_BUCKET_NAME,
 } = require("../config/config");
-const generateUUID = require("../utils/uuid.utils");
+const { generateUUID } = require("../utils/uuid.utils");
 const {
     sendCenterRegistrationInitiationEmail,
     sendCenterRegistrationAdminNotificationEmail,
@@ -16,19 +20,71 @@ const {
     validateLocation,
 } = require("../validators/location.validator");
 const { notifyAdmin } = require("../routes/sse-notifications.router");
-const bcrypt = require('bcrypt');
+const bcrypt = require("bcrypt");
 const { generateAccessToken } = require("../utils/tokens.util");
+
+const multer = require("multer");
+const multerS3 = require("multer-s3");
+const { S3Client, DeleteObjectsCommand } = require('@aws-sdk/client-s3');
+const { Upload } = require('@aws-sdk/lib-storage');
+
+// Initialize AWS S3
+const s3 = new S3Client({
+    region: AWS_REGION,
+    credentials: {
+      accessKeyId: AWS_ACCESS_KEY_ID,
+      secretAccessKey: AWS_SECRET_ACCESS_KEY
+    }
+});
+
+// Configure Multer for S3 upload
+const upload = multer({
+    storage: multerS3({
+        s3: s3,
+        bucket: AWS_S3_BUCKET_NAME,
+        acl: "private",
+        contentType: multerS3.AUTO_CONTENT_TYPE,
+        key: function (req, file, cb) {
+            const filename = `${new Date()
+                .toISOString()
+                .split(".")[0]
+                .replace(/T/, "_")
+                .replace(/:/g, "-")}_${file.originalname.replace(/\s+/g, "-")}`;
+            cb(null, `${req.centerId}/documents/${filename}`);
+        },
+    }),
+    fileFilter: function (req, file, cb) {
+        const allowedMimes = [
+            "application/pdf",
+            "application/msword",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ];
+
+        if (allowedMimes.includes(file.mimetype)) {
+            cb(null, true);
+        } else {
+            cb(
+                new Error(
+                    "Invalid file type. Only PDF and Word documents are allowed"
+                ),
+                false
+            );
+        }
+    },
+    limits: {
+        fileSize: 10 * 1024 * 1024,
+    },
+});
 
 async function onboardCenter(req, res) {
     const user = req.user;
     const centerData = req.body;
     const session = await mongoose.startSession();
+    let uploadedFiles = [];
 
     const rawLocation = centerData?.location;
-
     let formattedLocation = rawLocation;
 
-    // If location is passed with separate longitude and latitude, convert to GeoJSON
     if (rawLocation?.longitude != null && rawLocation?.latitude != null) {
         formattedLocation = {
             type: "Point",
@@ -53,10 +109,28 @@ async function onboardCenter(req, res) {
 
     try {
         session.startTransaction();
+        const centerId = req.centerId;
+
+        const processedDocuments = req.files.map((file) => ({
+            document_ref_id: generateUUID(),
+            document: {
+                name: file.originalname,
+                url: file.location,
+                s3_key: file.key,
+                bucket: file.bucket
+            },
+            status: "pending",
+        }));
+
+        uploadedFiles = req.files.map((file) => file.key);
 
         const centerDocument = {
-            center_id: generateUUID(),
+            center_id: centerId,
             ...centerData,
+            verification: {
+                ...centerData.verification,
+                documents: processedDocuments,
+            },
             location: formattedLocation,
             createdAt: new Date(),
             creator: {
@@ -92,7 +166,7 @@ async function onboardCenter(req, res) {
                 $inc: { centerCount: 1 },
                 $addToSet: {
                     roles: "center-admin",
-                    centers: centerDocument.center_id,
+                    centers: centerId,
                 },
                 $set: { lastUpdatedAt: new Date() },
             },
@@ -103,15 +177,14 @@ async function onboardCenter(req, res) {
             throw new Error("TOO_MANY_CENTERS");
         }
 
-                
         await session.commitTransaction();
-        
+
         await Promise.all([
             notifyAdmin("NEW_CENTER_REGISTRATION_REQUEST_RECEIVED", {
-                center_id: centerDocument.center_id,
+                center_id: centerId,
                 name: centerDocument.name,
-                email: centerDocument.email,
-                status: centerDocument.status,
+                email: centerDocument.contactInfo.email,
+                status: centerDocument.verification.status,
             }),
             sendCenterRegistrationInitiationEmail({
                 ...centerDocument,
@@ -126,8 +199,8 @@ async function onboardCenter(req, res) {
                 creator: {
                     creator_id: user.sub,
                     email: user.email,
-                    name: `${user.firstName} ${user.lastName}`
-                }
+                    name: `${user.firstName} ${user.lastName}`,
+                },
             }),
         ]);
 
@@ -137,6 +210,25 @@ async function onboardCenter(req, res) {
         });
     } catch (error) {
         await session.abortTransaction();
+
+        // Cleanup all uploaded files if any error occurs
+        if (uploadedFiles.length > 0) {
+            try {
+                const deleteParams = {
+                    Bucket: AWS_S3_BUCKET_NAME,
+                    Delete: {
+                        Objects: uploadedFiles.map((Key) => ({ Key })),
+                        Quiet: false,
+                    },
+                };
+        
+                const command = new DeleteObjectsCommand(deleteParams);
+                await s3.send(command);
+            } catch (cleanupError) {
+                console.error("S3 cleanup failed:", cleanupError);
+            }
+        }
+
         console.error("Center onboarding error:", error);
 
         if (error.message === "TOO_MANY_CENTERS") {
@@ -160,6 +252,13 @@ async function onboardCenter(req, res) {
             });
         }
 
+        if (error.message.includes("Invalid file type")) {
+            return res.status(400).json({
+                success: false,
+                error: error.message,
+            });
+        }
+
         return res.status(500).json({
             success: false,
             message: ERROR_MESSAGES.INTERNAL_SERVER_ERROR,
@@ -179,7 +278,9 @@ async function createNeed(req, res) {
 
         session.startTransaction();
 
-        const center = await Center.findOne({ center_id: centerId }).session(session);
+        const center = await Center.findOne({ center_id: centerId }).session(
+            session
+        );
         if (!center) {
             await session.abortTransaction();
             return res.status(404).json({
@@ -197,7 +298,9 @@ async function createNeed(req, res) {
         await Need.create([centerDocument], { session });
         await session.commitTransaction();
 
-        return res.status(201).json({ success: true, message: "Need created successfully" });
+        return res
+            .status(201)
+            .json({ success: true, message: "Need created successfully" });
     } catch (error) {
         await session.abortTransaction();
         console.error("Need creation error:", error);
@@ -237,12 +340,10 @@ async function getMyCreatedNeedsForAdmin(req, res){
 async function centerAdminLogin(req, res) {
     try {
         const { candidateEmail, candidatePassword } = req.body;
-        const user = await User.findOne(
-            {
-                email: new RegExp(`^${candidateEmail}$`, "i"),
-                isDeleted: { $ne: true },
-            },
-        ).lean();
+        const user = await User.findOne({
+            email: new RegExp(`^${candidateEmail}$`, "i"),
+            isDeleted: { $ne: true },
+        }).lean();
 
         if (!user) {
             return res.status(401).json({
@@ -260,7 +361,7 @@ async function centerAdminLogin(req, res) {
             });
         }
 
-        if (!user.roles.includes('center-admin')) {
+        if (!user.roles.includes("center-admin")) {
             return res.status(403).json({
                 success: false,
                 status: 403,
@@ -277,7 +378,9 @@ async function centerAdminLogin(req, res) {
                 return res.status(400).json({
                     success: false,
                     status: 400,
-                    error: `Account registered via ${oauthMethods.join(" or ")}. Use social login.`,
+                    error: `Account registered via ${oauthMethods.join(
+                        " or "
+                    )}. Use social login.`,
                 });
             }
         }
@@ -299,10 +402,10 @@ async function centerAdminLogin(req, res) {
         const userCenters = user.centers || [];
         const centers = await Center.find(
             { center_id: { $in: userCenters } },
-            { 
+            {
                 center_id: 1,
                 name: 1,
-                _id: 0
+                _id: 0,
             }
         ).lean();
 
@@ -324,11 +427,10 @@ async function centerAdminLogin(req, res) {
             tokens: {
                 accessToken: generateAccessToken({
                     sub: user.user_id,
-                    ...user
+                    ...user,
                 }),
             },
         });
-        
     } catch (error) {
         console.error("Login error:", error);
         return res.status(500).json({
@@ -340,6 +442,7 @@ async function centerAdminLogin(req, res) {
 }
 
 module.exports = {
+    upload,
     onboardCenter,
     centerAdminLogin,
     createNeed,

@@ -1,5 +1,5 @@
 const mongoose = require('mongoose');
-const generateUUID = require('../utils/uuid.utils');
+const { generateUUID } = require('../utils/uuid.utils');
 
 const NeedsSchema = new mongoose.Schema({
     need_id: {
