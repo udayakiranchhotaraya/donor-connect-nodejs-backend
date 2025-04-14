@@ -1,5 +1,5 @@
 const { User } = require("../models");
-const generateUUID = require("../utils/uuid.utils");
+const { generateUUID } = require("../utils/uuid.utils");
 const {
     generateVerficationToken,
     verifyToken,

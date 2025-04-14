@@ -301,7 +301,7 @@ async function verifyDocuments(req, res) {
             verificationDate = new Date();
             center.verification.verificationDate = verificationDate;
         } else if (anyRejected) {
-            center.verification.status = "rejected";
+            center.verification.status = "pending";
             center.verification.verificationDate = null;
         } else {
             center.verification.status = "pending";

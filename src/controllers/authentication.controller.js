@@ -4,7 +4,7 @@ const {
     generateVerficationToken,
     verifyToken,
 } = require("../utils/tokens.util");
-const generateUUID = require('../utils/uuid.utils');
+const { generateUUID } = require('../utils/uuid.utils');
 const {
     SUCCESS_MESSAGES,
     ERROR_MESSAGES,
