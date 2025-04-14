@@ -732,10 +732,10 @@ async function getContributionsList(req, res) {
         // Transform contributions to include user details
         const transformedList = list.map(({ user_id, ...rest }) => ({
             ...rest,
-            user_id: user_id?._id || user_id || null,
-            name: user_id ? `${user_id.firstName} ${user_id.lastName}` : null,
-            email: user_id?.email || null,
-            contactNumber: user_id?.contactNumber || null
+            user_id: user_id?.user_id || user_id,
+            name: `${user_id.firstName} ${user_id.lastName}`,
+            email: user_id?.email,
+            contactNumber: user_id?.contactNumber
         }));        
 
         const totalPages = Math.ceil(total / limit);

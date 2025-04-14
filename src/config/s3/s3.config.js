@@ -1,11 +1,12 @@
 const { S3Client, GetObjectCommand } = require("@aws-sdk/client-s3");
-const { AWS_S3_BUCKET_NAME } = require("../config");
+const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
+const { AWS_S3_BUCKET_NAME, AWS_REGION, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY } = require("../config");
 
 const s3Client = new S3Client({
-    region: process.env.AWS_REGION,
+    region: AWS_REGION,
     credentials: {
-        accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+        accessKeyId: AWS_ACCESS_KEY_ID,
+        secretAccessKey: AWS_SECRET_ACCESS_KEY,
     },
 });
 
@@ -16,7 +17,7 @@ async function getDocumentViewUrl(documentKey, expirationSeconds = 900) {
     });
 
     try {
-        const url = await getSignedUrl(s3, command, {
+        const url = await getSignedUrl(s3Client, command, {
             expiresIn: expirationSeconds,
         });
         return url;

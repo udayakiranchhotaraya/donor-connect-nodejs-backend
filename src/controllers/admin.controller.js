@@ -8,6 +8,7 @@ const {
 } = require("../config/mail/mail.config");
 const { User, Center } = require("../models");
 const { generateAccessToken } = require("../utils/tokens.util");
+const { getDocumentViewUrl } = require("../config/s3/s3.config");
 const bcrypt = require("bcrypt");
 
 async function login(req, res) {
@@ -478,7 +479,7 @@ async function banCenter (req, res) {
             reason,
             comments: comments || '',
             bannedAt: new Date(),
-            bannedBy: adminUser._id,
+            bannedBy: adminUser.sub,
             previousVerificationStatus: center.verification.status,
             documentStatuses: center.verification.documents.map(doc => ({
                 document_ref_id: doc.document_ref_id,
@@ -578,6 +579,56 @@ async function unbanCenter(req, res) {
     }
 };
 
+async function viewDocument(req, res) {
+    try {
+        const { documentRefID } = req.params;
+        const { expiresIn } = req.query; // optional expiration time in seconds
+
+        if (!documentRefID) {
+            return res.status(400).json({
+                success: false,
+                message: "Document reference ID is required."
+            });
+        }
+
+        const center = await Center.findOne({
+            "verification.documents.document_ref_id": documentRefID
+        });
+
+        if (!center) {
+            return res.status(404).json({
+                success: false,
+                message: "Document not found."
+            });
+        }
+
+        const documentEntry = center.verification.documents.find(doc => doc.document_ref_id === documentRefID);
+
+        if (!documentEntry || !documentEntry.document || !documentEntry.document.s3_key) {
+            return res.status(404).json({
+                success: false,
+                message: "Document information incomplete or missing."
+            });
+        }
+
+        const expirationTime = expiresIn ? parseInt(expiresIn, 10) : 900; // Default to 900s (15 mins)
+        
+        const presignedUrl = await getDocumentViewUrl(documentEntry.document.s3_key, expirationTime);
+
+        return res.status(200).json({
+            success: true,
+            url: presignedUrl
+        });
+    } catch (error) {
+        console.error('View document error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Internal server error',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+}
+
 module.exports = {
     login,
     listAllCenters,
@@ -585,5 +636,6 @@ module.exports = {
     verifyDocuments,
     updateCenterVerificationStatus,
     banCenter,
-    unbanCenter
+    unbanCenter,
+    viewDocument
 };

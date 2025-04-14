@@ -312,7 +312,7 @@ async function getMyContributions(req, res) {
                 $lookup: {
                     from: "centers",
                     localField: "center_id",
-                    foreignField: "_id",
+                    foreignField: "center_id",
                     as: "center"
                 }
             },
