@@ -389,7 +389,7 @@ async function cancelContribution(req, res) {
 
 async function updateUserProfile(req, res) {
     try {
-        const userId = req.user.id;
+        const userId = req.user.sub;
         const { firstName, lastName, email } = req.body;
 
         if (!userId) {
@@ -424,7 +424,7 @@ async function updateUserProfile(req, res) {
 
 async function updateUserPassword(req, res) {
     try {
-        const userId = req.user.id;
+        const userId = req.user.sub;
         const { currentPassword, newPassword } = req.body;
 
         if (!currentPassword || !newPassword) {
