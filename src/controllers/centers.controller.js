@@ -768,6 +768,96 @@ async function getContributionsList(req, res) {
     }
 }
 
+async function updateCenterDetails(req, res) {
+    const centerId = req.params.centerId;
+    const updateData = req.body;
+
+    try {
+        const updatedCenter = await Center.findOneAndUpdate(
+            { center_id: centerId },
+            { $set: updateData },
+            { new: true }
+        );
+
+        if (!updatedCenter) {
+            return res.status(404).json({
+                success: false,
+                message: ERROR_MESSAGES.CENTER_NOT_FOUND,
+            });
+        }
+
+        return res.status(200).json({
+            success: true,
+            message: SUCCESS_MESSAGES.CENTER_UPDATED,
+            data: updatedCenter,
+        });
+    } catch (error) {
+        console.error("Error updating center:", error);
+        return res.status(500).json({
+            success: false,
+            message: ERROR_MESSAGES.INTERNAL_SERVER_ERROR,
+            error: error.message,
+        });
+    }
+}
+
+async function deleteCenter(req, res) {
+    const centerId = req.params.centerId;
+    const session = await mongoose.startSession();
+
+    try {
+        const centerUpdate = await Center.findOneAndUpdate(
+            { center_id: centerId },
+            { $set: { isDeleted: true } },
+            { new: true, session }
+        );
+        if (!centerUpdate) {
+            session.abortTransaction();
+            return res.status(404).json({
+                success: false,
+                message: ERROR_MESSAGES.CENTER_NOT_FOUND,
+            });
+        }
+        if (centerUpdate.isDeleted) {
+            return res.status(400).json({
+                success: false,
+                message: "Center already deleted.",
+            });
+        }
+        await User.updateMany(
+            { centers: centerId },
+            { $pull: { centers: centerId }, $inc: { centerCount: -1 } },
+            { session }
+        );
+        await Need.updateMany(
+            { donation_center: centerId },
+            { $set: { isDeleted: true } },
+            { session }
+        );
+        res.status(200).json({
+            success: true,
+            message: SUCCESS_MESSAGES.CENTER_DELETED,
+        });
+        await notifyAdmin("CENTER_DELETED", {
+            center_id: centerId,
+            name: centerUpdate.name,
+            email: centerUpdate.contactInfo.email,
+        });
+        await session.commitTransaction();
+    } catch (error) {
+        await session.abortTransaction();
+        console.error("Error deleting center:", error);
+        return res.status(500).json({
+            success: false,
+            message: ERROR_MESSAGES.INTERNAL_SERVER_ERROR,
+            error: error.message,
+        });
+    } finally {
+        session.endSession();
+    }
+}
+
+
 module.exports = {
     upload,
     onboardCenter,
@@ -775,5 +865,7 @@ module.exports = {
     createNeed,
     getMyCreatedNeeds,
     handleCenterAdminContributionDecision,
-    getContributionsList
+    getContributionsList,
+    updateCenterDetails,
+    deleteCenter,
 };

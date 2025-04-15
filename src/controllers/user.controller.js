@@ -130,8 +130,13 @@ async function getNeeds(req, res) {
 
         let queryPipeline = [
             {
+                $match: {
+                    isDeleted: { $ne: true }, // Exclude deleted centers
+                },
+            },
+            {
                 $lookup: {
-                    from: "needs", // reference to the `Needs` collection
+                    from: "needs", // Reference to the `Needs` collection
                     localField: "center_id",
                     foreignField: "donation_center",
                     as: "needs",
@@ -143,14 +148,19 @@ async function getNeeds(req, res) {
                         $filter: {
                             input: "$needs",
                             as: "need",
-                            cond: { $eq: ["$$need.status", "open"] },
+                            cond: {
+                                $and: [
+                                    { $eq: ["$$need.status", "open"] },
+                                    { $ne: ["$$need.isDeleted", true] },
+                                ],
+                            },
                         },
                     },
                 },
             },
             {
                 $project: {
-                    needs: 0, // optional: hide all needs except filtered ones
+                    needs: 0, // Optional: Hide all needs except filtered ones
                 },
             },
         ];
@@ -167,7 +177,7 @@ async function getNeeds(req, res) {
                         coordinates: coords,
                     },
                     distanceField: "distance",
-                    maxDistance: radiusInRadians * 6378.1 * 1000, // convert back to meters
+                    maxDistance: radiusInRadians * 6378.1 * 1000, // Convert back to meters
                     spherical: true,
                 },
             });
@@ -181,53 +191,11 @@ async function getNeeds(req, res) {
         return res.json({ success: true, centers });
     } catch (error) {
         console.error(error);
-        return res.status(500).json({ success: false, message: "Internal server error" });
+        return res
+            .status(500)
+            .json({ success: false, message: "Internal server error" });
     }
 }
-
-// deprecated
-// async function createContribution(req, res) {
-//     const session = await mongoose.startSession();
-//     session.startTransaction();
-//     try {
-//         const { user_id, need_id, center_id, message } = req.body;
-
-//         if (!user_id || !need_id || !center_id) {
-//             await session.abortTransaction();
-//             session.endSession();
-//             return res
-//                 .status(400)
-//                 .json({ message: "Missing required fields." });
-//         }
-
-//         const contribution = await Contribution.create(
-//             [
-//                 {
-//                     user_id,
-//                     need_id,
-//                     center_id,
-//                     message,
-//                 },
-//             ],
-//             { session }
-//         );
-
-//         // You can optionally add business logic here like initial checks
-
-//         await session.commitTransaction();
-//         session.endSession();
-
-//         res.status(201).json({
-//             message: "Contribution created successfully.",
-//             contribution: contribution[0],
-//         });
-//     } catch (error) {
-//         await session.abortTransaction();
-//         session.endSession();
-//         console.error(error);
-//         res.status(500).json({ message: "Internal server error" });
-//     }
-// }
 
 async function createContribution(req, res) {
     const session = await mongoose.startSession();
@@ -240,23 +208,45 @@ async function createContribution(req, res) {
         if (!need_id) {
             await session.abortTransaction();
             session.endSession();
-            return res.status(400).json({ success: false, message: "Need ID is required." });
+            return res
+                .status(400)
+                .json({ success: false, message: "Need ID is required." });
         }
 
-        const need = await Need.findOne({ need_id }).session(session);
+        const need = await Need.findOne({
+            need_id,
+            isDeleted: { $ne: true },
+        }).session(session);
         if (!need) {
             await session.abortTransaction();
             session.endSession();
-            return res.status(404).json({ success: false, message: "Need not found." });
+            return res
+                .status(404)
+                .json({ success: false, message: "Need not found." });
         }
 
-        if (need.status !== 'open') {
+        if (need.status !== "open") {
             await session.abortTransaction();
             session.endSession();
-            return res.status(409).json({ 
+            return res.status(409).json({
                 success: false,
-                message: "Cannot contribute to a closed or fulfilled need."
+                message: "Cannot contribute to a closed or fulfilled need.",
             });
+        }
+
+        const center = await Center.findOne({
+            center_id: need.donation_center,
+            isDeleted: { $ne: true },
+        }).session(session);
+        if (!center) {
+            await session.abortTransaction();
+            session.endSession();
+            return res
+                .status(404)
+                .json({
+                    success: false,
+                    message: "Associated center not found or deleted.",
+                });
         }
 
         const contribution = await Contribution.create(
@@ -264,7 +254,7 @@ async function createContribution(req, res) {
                 user_id,
                 need_id: need.need_id,
                 center_id: need.donation_center,
-                message
+                message,
             },
             { session }
         );
@@ -275,14 +265,15 @@ async function createContribution(req, res) {
         return res.status(201).json({
             success: true,
             message: "Contribution created successfully.",
-            contribution
+            contribution,
         });
-
     } catch (error) {
         await session.abortTransaction();
         session.endSession();
         console.error("Contribution creation error:", error);
-        return res.status(500).json({ success: false, message: "Internal server error" });
+        return res
+            .status(500)
+            .json({ success: false, message: "Internal server error" });
     }
 }
 
@@ -290,15 +281,23 @@ async function getMyContributions(req, res) {
     try {
         const userId = req.user.sub;
         if (!userId) {
-            return res.status(400).json({ success: false, message: "Missing required parameter: userId" });
+            return res.status(400).json({
+                success: false,
+                message: "Missing required parameter: userId",
+            });
         }
 
         const page = Math.max(1, parseInt(req.query.page) || 1);
-        const limit = Math.min(Math.max(1, parseInt(req.query.limit) || 10), 100);
+        const limit = Math.min(
+            Math.max(1, parseInt(req.query.limit) || 10),
+            100
+        );
         const skip = (page - 1) * limit;
 
         const validSortFields = ["createdAt", "quantity", "status"];
-        const sortBy = validSortFields.includes(req.query.sortBy) ? req.query.sortBy : "createdAt";
+        const sortBy = validSortFields.includes(req.query.sortBy)
+            ? req.query.sortBy
+            : "createdAt";
         const sortOrder = req.query.sortOrder === "asc" ? 1 : -1;
 
         const matchStage = { user_id: userId };
@@ -313,8 +312,8 @@ async function getMyContributions(req, res) {
                     from: "centers",
                     localField: "center_id",
                     foreignField: "center_id",
-                    as: "center"
-                }
+                    as: "center",
+                },
             },
             { $unwind: { path: "$center", preserveNullAndEmptyArrays: true } },
             {
@@ -324,23 +323,26 @@ async function getMyContributions(req, res) {
                     quantity: 1,
                     status: 1,
                     message: 1,
-                    rejection_reason: 1
-                }
+                    rejection_reason: 1,
+                },
             },
             { $sort: { [sortBy]: sortOrder } },
             { $skip: skip },
-            { $limit: limit }
+            { $limit: limit },
         ];
 
         const [list, totalResult] = await Promise.all([
             Contribution.aggregate(aggregationPipeline),
-            Contribution.countDocuments(matchStage)
+            Contribution.countDocuments(matchStage),
         ]);
 
         const totalPages = Math.ceil(totalResult / limit);
 
         return res.status(200).json({
-            message: list.length > 0 ? "Contributions found." : "No contributions found.",
+            message:
+                list.length > 0
+                    ? "Contributions found."
+                    : "No contributions found.",
             data: list,
             pagination: {
                 page,
@@ -353,13 +355,16 @@ async function getMyContributions(req, res) {
                 sortOrder: sortOrder === 1 ? "asc" : "desc",
                 appliedFilters: {
                     user_id: userId,
-                    ...(req.query.status && { status: req.query.status })
-                }
-            }
+                    ...(req.query.status && { status: req.query.status }),
+                },
+            },
         });
     } catch (error) {
         console.error("Error in getting contributions:", error);
-        res.status(500).json({ success: false, message: "Internal server error" });
+        res.status(500).json({
+            success: false,
+            message: "Internal server error",
+        });
     }
 }
 
@@ -367,23 +372,35 @@ async function cancelContribution(req, res) {
     try {
         const contributionId = req.params.contributionId;
 
-        const contribution = await Contribution.findOne({ contribution_id: contributionId });
+        const contribution = await Contribution.findOne({
+            contribution_id: contributionId,
+        });
 
         if (!contribution) {
-            return res.status(404).json({ success: false, message: "Contribution not found." });
+            return res
+                .status(404)
+                .json({ success: false, message: "Contribution not found." });
         }
 
         if (contribution.status === "cancelled") {
-            return res.status(400).json({ success: false, message: "Contribution is already cancelled." });
+            return res.status(400).json({
+                success: false,
+                message: "Contribution is already cancelled.",
+            });
         }
 
         contribution.status = "cancelled";
         await contribution.save();
 
-        return res.status(200).json({ success: true, message: "Contribution cancelled successfully." });
+        return res.status(200).json({
+            success: true,
+            message: "Contribution cancelled successfully.",
+        });
     } catch (error) {
         console.error("Error in cancelling contribution: ", error);
-        return res.status(500).json({ success: false, message: "Internal server error" });
+        return res
+            .status(500)
+            .json({ success: false, message: "Internal server error" });
     }
 }
 
@@ -393,7 +410,9 @@ async function updateUserProfile(req, res) {
         const { firstName, lastName, email } = req.body;
 
         if (!userId) {
-            return res.status(400).json({ success: false, message: "Missing user identifier." });
+            return res
+                .status(400)
+                .json({ success: false, message: "Missing user identifier." });
         }
 
         const updateFields = {};
@@ -405,20 +424,24 @@ async function updateUserProfile(req, res) {
             { user_id: userId },
             { $set: updateFields },
             { new: true, runValidators: true }
-        ).select('-password -__v -_id');
+        ).select("-password -__v -_id");
 
         if (!updatedUser) {
-            return res.status(404).json({ success: false, message: "User not found." });
+            return res
+                .status(404)
+                .json({ success: false, message: "User not found." });
         }
 
         return res.status(200).json({
             success: true,
             message: "Profile updated successfully.",
-            data: updatedUser
+            data: updatedUser,
         });
     } catch (error) {
         console.error("Error updating user profile: ", error);
-        return res.status(500).json({ success: false, message: "Internal server error" });
+        return res
+            .status(500)
+            .json({ success: false, message: "Internal server error" });
     }
 }
 
@@ -428,23 +451,34 @@ async function updateUserPassword(req, res) {
         const { currentPassword, newPassword } = req.body;
 
         if (!currentPassword || !newPassword) {
-            return res.status(400).json({ success: false, message: "Both current and new passwords are required." });
+            return res.status(400).json({
+                success: false,
+                message: "Both current and new passwords are required.",
+            });
         }
 
         const user = await User.findOne({ user_id: userId });
 
         if (!user) {
-            return res.status(404).json({ success: false, message: "User not found." });
+            return res
+                .status(404)
+                .json({ success: false, message: "User not found." });
         }
 
         if (!user.password) {
-            return res.status(400).json({ success: false, message: "Password update not allowed for social login users." });
+            return res.status(400).json({
+                success: false,
+                message: "Password update not allowed for social login users.",
+            });
         }
 
         const isMatch = await bcrypt.compare(currentPassword, user.password);
 
         if (!isMatch) {
-            return res.status(401).json({ success: false, message: "Current password is incorrect." });
+            return res.status(401).json({
+                success: false,
+                message: "Current password is incorrect.",
+            });
         }
 
         const salt = await bcrypt.genSalt(10);
@@ -453,10 +487,47 @@ async function updateUserPassword(req, res) {
         user.password = hashedPassword;
         await user.save();
 
-        return res.status(200).json({ success: true, message: "Password updated successfully." });
+        return res
+            .status(200)
+            .json({ success: true, message: "Password updated successfully." });
     } catch (error) {
         console.error("Error updating user password: ", error);
-        return res.status(500).json({ success: false, message: "Internal server error" });
+        return res
+            .status(500)
+            .json({ success: false, message: "Internal server error" });
+    }
+}
+
+async function deleteUserAccount(req, res) {
+    try {
+        const userId = req.user.sub;
+
+        if (!userId) {
+            return res
+                .status(400)
+                .json({ success: false, message: "Missing user identifier." });
+        }
+
+        const deletedUser = await User.findOneAndUpdate(
+            { user_id: userId },
+            { $set: { isDeleted: true } },
+            { new: true }
+        );
+
+        if (!deletedUser) {
+            return res
+                .status(404)
+                .json({ success: false, message: "User not found." });
+        }
+
+        return res
+            .status(200)
+            .json({ success: true, message: "Account deleted successfully." });
+    } catch (error) {
+        console.error("Error deleting user account: ", error);
+        return res
+            .status(500)
+            .json({ success: false, message: "Internal server error" });
     }
 }
 
@@ -468,5 +539,6 @@ module.exports = {
     getMyContributions,
     cancelContribution,
     updateUserProfile,
-    updateUserPassword
+    updateUserPassword,
+    deleteUserAccount,
 };
