@@ -126,9 +126,33 @@ async function completeRegistration(req, res) {
 
 async function getNeeds(req, res) {
     try {
-        const { longitude, latitude } = req.query;
+        const { longitude, latitude, page = 1, limit = 10 } = req.query;
 
-        let queryPipeline = [
+        if (!longitude || !latitude) {
+            return res.status(400).json({
+                success: false,
+                message: "Longitude and latitude are required.",
+            });
+        }
+
+        const coords = [parseFloat(longitude), parseFloat(latitude)];
+        const radiusInKm = 20;
+        const radiusInRadians = radiusInKm / 6378.1;
+
+        const skip = (page - 1) * limit;
+
+        const queryPipeline = [
+            {
+                $geoNear: {
+                    near: {
+                        type: "Point",
+                        coordinates: coords,
+                    },
+                    distanceField: "distance",
+                    maxDistance: radiusInRadians * 6378.1 * 1000, // Convert back to meters
+                    spherical: true,
+                },
+            },
             {
                 $match: {
                     isDeleted: { $ne: true }, // Exclude deleted centers
@@ -143,57 +167,106 @@ async function getNeeds(req, res) {
                 },
             },
             {
-                $addFields: {
-                    openNeeds: {
-                        $filter: {
-                            input: "$needs",
-                            as: "need",
-                            cond: {
-                                $and: [
-                                    { $eq: ["$$need.status", "open"] },
-                                    { $ne: ["$$need.isDeleted", true] },
-                                ],
-                            },
-                        },
-                    },
+                $unwind: "$needs", // Flatten the needs array
+            },
+            {
+                $match: {
+                    "needs.status": "open", // Only include needs with "open" status
+                    "needs.isDeleted": { $ne: true }, // Exclude deleted needs
                 },
             },
             {
                 $project: {
-                    needs: 0, // Optional: Hide all needs except filtered ones
+                    _id: 0,
+                    center_id: 1,
+                    center_name: "$name",
+                    center_address: "$contactInfo.address",
+                    center_email: "$contactInfo.email",
+                    center_phone: "$contactInfo.phone",
+                    need_id: "$needs.need_id",
+                    item: "$needs.item",
+                    urgency: "$needs.urgency",
+                    target_quantity: "$needs.target_quantity",
+                    current_received: "$needs.current_received",
+                    description: "$needs.description",
+                    status: "$needs.status",
+                    distance: 1,
                 },
+            },
+            {
+                $sort: { distance: 1 }, // Sort by distance ascending
+            },
+            {
+                $skip: skip, // Pagination: skip documents
+            },
+            {
+                $limit: parseInt(limit), // Pagination: limit documents
             },
         ];
 
-        if (longitude && latitude) {
-            const coords = [parseFloat(longitude), parseFloat(latitude)];
-            const radiusInKm = 20;
-            const radiusInRadians = radiusInKm / 6378.1;
-
-            queryPipeline.unshift({
-                $geoNear: {
-                    near: {
-                        type: "Point",
-                        coordinates: coords,
+        const [needs, totalNeeds] = await Promise.all([
+            Center.aggregate(queryPipeline),
+            Center.aggregate([
+                {
+                    $geoNear: {
+                        near: {
+                            type: "Point",
+                            coordinates: coords,
+                        },
+                        distanceField: "distance",
+                        maxDistance: radiusInRadians * 6378.1 * 1000,
+                        spherical: true,
                     },
-                    distanceField: "distance",
-                    maxDistance: radiusInRadians * 6378.1 * 1000, // Convert back to meters
-                    spherical: true,
                 },
-            });
-        }
-        queryPipeline.push({
-            $sort: { createdAt: -1 }, // Sort by created_at descending if no geo coordinates
+                {
+                    $match: {
+                        isDeleted: { $ne: true },
+                    },
+                },
+                {
+                    $lookup: {
+                        from: "needs",
+                        localField: "center_id",
+                        foreignField: "donation_center",
+                        as: "needs",
+                    },
+                },
+                {
+                    $unwind: "$needs",
+                },
+                {
+                    $match: {
+                        "needs.status": "open",
+                        "needs.isDeleted": { $ne: true },
+                    },
+                },
+                {
+                    $count: "total",
+                },
+            ]),
+        ]);
+
+        const total = totalNeeds.length > 0 ? totalNeeds[0].total : 0;
+        const totalPages = Math.ceil(total / limit);
+
+        return res.status(200).json({
+            success: true,
+            data: needs,
+            pagination: {
+                page: parseInt(page),
+                limit: parseInt(limit),
+                total,
+                totalPages,
+                hasNextPage: page < totalPages,
+                hasPrevPage: page > 1,
+            },
         });
-
-        const centers = await Center.aggregate(queryPipeline);
-
-        return res.json({ success: true, centers });
     } catch (error) {
-        console.error(error);
-        return res
-            .status(500)
-            .json({ success: false, message: "Internal server error" });
+        console.error("Error fetching needs:", error);
+        return res.status(500).json({
+            success: false,
+            message: "Internal server error",
+        });
     }
 }
 
@@ -241,12 +314,10 @@ async function createContribution(req, res) {
         if (!center) {
             await session.abortTransaction();
             session.endSession();
-            return res
-                .status(404)
-                .json({
-                    success: false,
-                    message: "Associated center not found or deleted.",
-                });
+            return res.status(404).json({
+                success: false,
+                message: "Associated center not found or deleted.",
+            });
         }
 
         const contribution = await Contribution.create(
